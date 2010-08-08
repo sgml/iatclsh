@@ -3,8 +3,11 @@
 #
 
 namespace eval iatclsh {    
-    namespace export setStatusLeft setStatusRight pending post cmd \
-            getLine getAll 
+    namespace export \
+            pending post cmd getLine getAll stop resume \
+            isStatusBarHidden showStatusBar hideStatusBar \
+            setStatusLeft setStatusRight \
+            addAction addCBAction addRBAction addSeparator 
        
     variable configFile ""
     variable sourceFiles [list]
@@ -22,6 +25,8 @@ namespace eval iatclsh {
     variable autoCmdComplete 0
     variable busy 0
     variable statusHidden 1
+    variable runStopped 0
+    variable pause
     variable fd
     
     # parse command line arguments. Returns 1 if command line parsed 
@@ -172,7 +177,7 @@ namespace eval iatclsh {
     proc clearLog {} {
         .log configure -state normal
         .log delete 1.0 end
-        .log configure -state normal
+        .log configure -state disabled
     }
     
     # post interactive command for sending
@@ -361,13 +366,32 @@ namespace eval iatclsh {
         }
     }
 
-    # set status bar left label
-    proc setStatusLeft {str} {
-        variable statusLeft
+    proc isStatusBarHidden {} {
+        variable statusHidden
+        return $statusHidden
+    }
+
+    proc showStatusBar {} {
         variable statusHidden
         if {$statusHidden} {
             set statusHidden 0
             grid .status
+        }
+    }
+    
+    proc hideStatusBar {} {
+        variable statusHidden
+        if {!$statusHidden} {
+            set statusHidden 1
+            grid remove .status
+        }
+    }
+
+    # set status bar left label
+    proc setStatusLeft {str} {
+        variable statusLeft
+        if {[isStatusBarHidden]} {
+            showStatusBar 
         }
         set statusLeft $str    
     }
@@ -375,14 +399,100 @@ namespace eval iatclsh {
     # set status bar right label
     proc setStatusRight {str} {
         variable statusRight
-        variable statusHidden
-        if {$statusHidden} {
-            set statusHidden 0
-            grid .status
+        if {[isStatusBarHidden]} {
+            showStatusBar 
         }
         set statusRight $str
     }
+
+    # diaplay menu bar for actions menu
+    proc displayMenuBar {} {
+        .mbar add cascade -label Actions -menu .mbar.actions -underline 0
+        . configure -menu .mbar
+    }
+
+    # add command to action menu
+    proc addAction {label args} {
+        if {[. cget -menu] == ""} {
+            displayMenuBar
+        }
+        foreach param {-command -submenu} {
+            set c [getActionParam $param {*}$args]
+            if {$c != ""} {
+                .mbar.actions add command -label $label -command $c
+            } 
+        }
+    }
     
+    # add check box actions to action menu
+    proc addCBAction {label var args} {
+        if {[. cget -menu] == ""} {
+            displayMenuBar
+        }
+        .mbar.actions add checkbutton -label $label -variable $var
+        if {$args != ""} {
+            puts "args: $args"
+        }
+        if {[getActionParam "-command"] != ""} {
+            set command [getActionParam "-command" $args]
+            puts "-command: $command"
+        }
+        if {[getActionParam "-submenu"] != ""} {
+            set submenu [getActionParam "-submenu" $args]
+            puts "-submenu: $submenu"
+        }
+    }
+
+    # add radio button actions to action menu
+    proc addRBAction {labels var args} {
+        if {[. cget -menu] == ""} {
+            displayMenuBar
+        }
+        foreach label $labels {
+            .mbar.actions add radiobutton -label $label -variable $var
+        }
+        if {[getActionParam "-command"] != ""} {
+            set command [getActionParam "-command" $args]
+            puts "-command: $command"
+        }
+        if {[getActionParam "-submenu"] != ""} {
+            set submenu [getActionParam "-submenu" $args]
+            puts "-submenu: $submenu"
+        }
+    }
+
+    # parse variable args supplied to action commands for a specific parameter
+    proc getActionParam {param args} {
+        for {set i 0} {$i < [llength $args]} {incr i} {
+            if {[lindex $args $i] == $param} {
+                incr i
+                return [lindex $args $i]
+            }
+        }
+        return "" 
+    }
+
+    # add separator to actions menu
+    proc addSeparator {} {
+        .mbar.actions add separator
+    }
+
+    # stop executing run procedure
+    proc stop {} {
+        variable runStopped
+        set runStopped 1
+    }
+    
+    # resume executing run procedure 
+    proc resume {} {
+        variable runStopped
+        variable pause 
+        if {$runStopped} {
+            set runStopped 0
+            after 0 {set pause 0}
+        }
+    }
+
     # gui
     proc buildGui {} {
         tk::text .log -background black -yscrollcommand ".sb set"
@@ -391,6 +501,9 @@ namespace eval iatclsh {
         ttk::frame .status
         ttk::label .status.left -textvariable iatclsh::statusLeft
         ttk::label .status.right -textvariable iatclsh::statusRight
+        option add *Menu.tearOff 0
+        menu .mbar
+        menu .mbar.actions
         .log configure -state disabled 
         .log tag configure command -foreground green
         .log tag configure response -foreground lightgrey
@@ -421,6 +534,8 @@ namespace eval iatclsh {
     proc main {} {
         variable showScrollBar
         variable sourceFiles
+        variable runStopped
+        variable pause
         
         buildGui
             
@@ -466,18 +581,19 @@ namespace eval iatclsh {
                     } 
                 }
                 while {1} {
-                    if {[llength [info procs ::run]] == 1} {
+                    if {$runStopped == 0 && [llength [info procs ::run]] == 1} {
                         if {[catch {set rv [run]}]} {
                             appendLog $::errorInfo response
                             break
                         }
                         if {[string is integer -strict $rv]} {
+                            set runStopped 0
                             after $rv {set pause 0}
-                            vwait pause
                         } else {
-                            break   
+                            set runStopped 1
                         }
-                    }
+                    } 
+                    vwait pause
                 }
             }
         }
