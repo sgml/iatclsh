@@ -28,6 +28,8 @@ namespace eval iatclsh {
     variable runStopped 0
     variable pause
     variable fd
+    variable subMenuCount 0
+    variable traces [dict create]
     
     # parse command line arguments. Returns 1 if command line parsed 
     # successfully, otherwise 0
@@ -412,16 +414,11 @@ namespace eval iatclsh {
     }
 
     # add command to action menu
-    proc addAction {label args} {
+    proc addAction {label command} {
         if {[. cget -menu] == ""} {
             displayMenuBar
         }
-        foreach param {-command -submenu} {
-            set c [getActionParam $param {*}$args]
-            if {$c != ""} {
-                .mbar.actions add command -label $label -command $c
-            } 
-        }
+        .mbar.actions add command -label $label -command $command
     }
     
     # add check box actions to action menu
@@ -430,16 +427,9 @@ namespace eval iatclsh {
             displayMenuBar
         }
         .mbar.actions add checkbutton -label $label -variable $var
-        if {$args != ""} {
-            puts "args: $args"
-        }
-        if {[getActionParam "-command"] != ""} {
-            set command [getActionParam "-command" $args]
-            puts "-command: $command"
-        }
-        if {[getActionParam "-submenu"] != ""} {
-            set submenu [getActionParam "-submenu" $args]
-            puts "-submenu: $submenu"
+        set command [getActionParam "-command" {*}$args]
+        if {$command != ""} {
+            addVariableTrace $var $command
         }
     }
 
@@ -448,17 +438,33 @@ namespace eval iatclsh {
         if {[. cget -menu] == ""} {
             displayMenuBar
         }
+        set m .mbar.actions
+        set subMenuLabel [getActionParam "-submenu" {*}$args]
+        if {$subMenuLabel != ""} {
+            set tail [getSubMenuTail]
+            $m add cascade -label $subMenuLabel -menu $m.$tail
+            menu $m.$tail
+            set m $m.$tail
+        } 
         foreach label $labels {
-            .mbar.actions add radiobutton -label $label -variable $var
+            $m add radiobutton -label $label -variable $var
         }
-        if {[getActionParam "-command"] != ""} {
-            set command [getActionParam "-command" $args]
-            puts "-command: $command"
+        set command [getActionParam "-command" {*}$args]
+        if {$command != ""} {
+            addVariableTrace $var $command
         }
-        if {[getActionParam "-submenu"] != ""} {
-            set submenu [getActionParam "-submenu" $args]
-            puts "-submenu: $submenu"
-        }
+    }
+
+    # add separator to actions menu
+    proc addSeparator {} {
+        .mbar.actions add separator
+    }
+
+    # get unique tail for submenu
+    proc getSubMenuTail {} {
+        variable subMenuCount
+        incr subMenuCount
+        return $subMenuCount
     }
 
     # parse variable args supplied to action commands for a specific parameter
@@ -472,9 +478,18 @@ namespace eval iatclsh {
         return "" 
     }
 
-    # add separator to actions menu
-    proc addSeparator {} {
-        .mbar.actions add separator
+    # add trace to an action variable
+    proc addVariableTrace {var command} {
+        global $var
+        variable traces
+        dict set traces $var $command
+        trace add variable $var write iatclsh::variableTrace
+    }
+
+    # for calling check-box and radio-button action commands
+    proc variableTrace {name element op} {
+        variable traces
+        [dict get $traces $name]
     }
 
     # stop executing run procedure
