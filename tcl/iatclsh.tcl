@@ -4,11 +4,11 @@
 
 namespace eval iatclsh {    
     namespace export \
-            pending post cmd getLine getAll stop resume \
+            pending post cmd getLine getAll stop start \
             isStatusBarHidden showStatusBar hideStatusBar \
-            setStatusLeft setStatusRight \
+            setStatusLeft setStatusRight getBusyString \
             addAction addCBAction addRBAction addSeparator 
-       
+            
     variable configFile ""
     variable sourceFiles [list]
     variable showScrollBar 0
@@ -30,6 +30,8 @@ namespace eval iatclsh {
     variable fd
     variable subMenuCount 0
     variable traces [dict create]
+    variable busyCount 0
+    variable busyTime [clock milliseconds]
     
     # parse command line arguments. Returns 1 if command line parsed 
     # successfully, otherwise 0
@@ -498,13 +500,34 @@ namespace eval iatclsh {
         set runStopped 1
     }
     
-    # resume executing run procedure 
-    proc resume {} {
+    # start executing run procedure 
+    proc start {} {
         variable runStopped
         variable pause 
         if {$runStopped} {
             set runStopped 0
             after 0 {set pause 0}
+        }
+    }
+
+    # returns next phase in a sequence of strings. If period is supplied, next
+    # phase is provided only if time difference since last successful call 
+    # exceeds period
+    proc getBusyString {{period ""}} {
+        variable busyCount
+        variable busyTime
+        if {$period == "" || [clock milliseconds] - $busyTime > $period} {
+            incr busyCount
+            if {$busyCount == 4} {
+                set busyCount 0
+            }
+            set busyTime [clock milliseconds]
+        }
+        switch $busyCount {
+            0 {return "|"}
+            1 {return "/"}
+            2 {return "-"}
+            3 {return "\\"}
         }
     }
 
