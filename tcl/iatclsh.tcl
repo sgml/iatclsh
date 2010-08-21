@@ -21,8 +21,8 @@ namespace eval iatclsh {
     variable cmdLine ""
     variable lastCmdAuto 0
     variable interactiveCmd ""
-    variable autoCmd ""
-    variable autoCmdComplete 0
+    variable bgCmd ""
+    variable bgCmdComplete 0
     variable busy 0
     variable statusHidden 1
     variable runStopped 0
@@ -47,7 +47,7 @@ namespace eval iatclsh {
                 if {$t == "-sc"} {
                     set showScrollBar 1
                     incr i
-                } elseif {$t == "-config"} {
+                } elseif {$t == "-bg"} {
                     incr i
                     if {$i >= $argc} {
                         return 0
@@ -145,14 +145,14 @@ namespace eval iatclsh {
     proc completedCmd {} {
         variable cmdLine 
         variable interactiveCmd
-        variable autoCmd
+        variable bgCmd
         variable lastCmdAuto
         variable busy
-        variable autoCmdComplete
+        variable bgCmdComplete
         set busy 0
         if {$lastCmdAuto} {
-            set autoCmd ""
-            set autoCmdComplete 1
+            set bgCmd ""
+            set bgCmdComplete 1
             if {$interactiveCmd != ""} {
                 sendACmd   
             }
@@ -160,7 +160,7 @@ namespace eval iatclsh {
             set cmdLine ""
             set interactiveCmd ""
             .cmd config -state normal
-            if {$autoCmd != ""} {
+            if {$bgCmd != ""} {
                 sendACmd   
             }
         }
@@ -207,10 +207,10 @@ namespace eval iatclsh {
     
     # post background command
     proc post {args} {
-        variable autoCmd
-        variable autoCmdComplete
-        set autoCmdComplete 0
-        set autoCmd $args
+        variable bgCmd
+        variable bgCmdComplete
+        set bgCmdComplete 0
+        set bgCmd $args
         sendACmd   
     }
     
@@ -218,25 +218,25 @@ namespace eval iatclsh {
     # and what type of command was sent previously
     proc sendACmd {} {
         variable interactiveCmd
-        variable autoCmd
+        variable bgCmd
         variable lastCmdAuto
         variable busy
         if {$busy} {
             return
         }
-        if {$interactiveCmd != "" && $autoCmd == ""} {
+        if {$interactiveCmd != "" && $bgCmd == ""} {
             set lastCmdAuto 0
             sendCmd $interactiveCmd
-        } elseif {$interactiveCmd == "" && $autoCmd != ""} {
+        } elseif {$interactiveCmd == "" && $bgCmd != ""} {
             set lastCmdAuto 1
-            sendCmd $autoCmd
+            sendCmd $bgCmd
         } else {
             if {$lastCmdAuto} {
                 set lastCmdAuto 0  
                 sendCmd $interactiveCmd
             } else {
                 set lastCmdAuto 1
-                sendCmd $autoCmd    
+                sendCmd $bgCmd    
             }
         }
     }
@@ -334,8 +334,8 @@ namespace eval iatclsh {
 
     # returns 1 if background command pending, otherwise 0
     proc pending {} {
-        variable autoCmd
-        if {$autoCmd == ""} {
+        variable bgCmd
+        if {$bgCmd == ""} {
             return 0
         }
         return 1
@@ -367,10 +367,10 @@ namespace eval iatclsh {
     # get complete response from background command
     proc getAll {} {
         variable bgndRxBuf
-        variable autoCmdComplete
+        variable bgCmdComplete
         while {1} {
-            vwait ::iatclsh::autoCmdComplete
-            if {$autoCmdComplete} {
+            vwait ::iatclsh::bgCmdComplete
+            if {$bgCmdComplete} {
                 regexp {(.*)\n$} $bgndRxBuf match line
                 set bgndRxBuf ""
                 return $line
@@ -594,20 +594,20 @@ namespace eval iatclsh {
     # close current open interface and open a new one
     proc reloadApp {} {
         variable fd
-        variable autoCmd
+        variable bgCmd
         variable interactiveCmd
         variable cmdLine
         variable busy
         variable bgndRxBuf 
-        variable autoCmdComplete
+        variable bgCmdComplete
         close $fd
-        set autoCmd ""
+        set bgCmd ""
         set interactiveCmd ""
         set cmdLine ""
         set busy 0
         set bgndRxBuf "\n"
         .cmd config -state normal
-        set autoCmdComplete 1
+        set bgCmdComplete 1
         loadApp
     }
 
