@@ -64,11 +64,10 @@ namespace eval iatclsh {
         }
         return 1
     }
-    
+  
     # open pipe to app interface and source any supplied files. Returns a 
     # string message in m, and 1 for success, 0 for fail
     proc startUp {m} {
-        variable sourceFiles
         variable fd 
         global tcl_platform
         upvar $m msg
@@ -81,6 +80,17 @@ namespace eval iatclsh {
             set msg $err; 
             return 0
         }
+        set msg [sourceCmdLineFiles]
+        chan event $fd readable ::iatclsh::readPipe
+        chan configure $fd -blocking 0
+        return 1
+    }
+
+    # source files specified on the command line. Returns any message 
+    # resulting from sourcing the files
+    proc sourceCmdLineFiles {} {
+        variable sourceFiles
+        variable fd 
         set msg ""
         foreach f $sourceFiles {
             puts $fd "source $f"
@@ -93,9 +103,7 @@ namespace eval iatclsh {
                 set msg "$msg$l\n"
             }
         }
-        chan event $fd readable ::iatclsh::readPipe
-        chan configure $fd -blocking 0
-        return 1
+        return $msg
     }
     
     # event handler for reading pipe
@@ -157,7 +165,7 @@ namespace eval iatclsh {
             }
         }
     }
-    
+
     # append string str to text widget log, with supplied tag 
     proc appendLog {str tag} {
         .log configure -state normal
@@ -533,6 +541,7 @@ namespace eval iatclsh {
 
     # gui
     proc buildGui {} {
+        # components
         tk::text .log -background black -yscrollcommand ".sb set"
         ttk::scrollbar .sb -command ".log yview"
         ttk::entry .cmd -textvariable iatclsh::cmdLine
@@ -542,10 +551,20 @@ namespace eval iatclsh {
         option add *Menu.tearOff 0
         menu .mbar
         menu .mbar.actions
+        menu .puMenu
+
+        # pop up menu
+        .puMenu add command -label "Clear" -command {::iatclsh::clearLog}
+        .puMenu add command -label "Reload User Script" \
+                -command {iatclsh::reloadApp}
+
+        # configure log
         .log configure -state disabled 
         .log tag configure command -foreground green
         .log tag configure response -foreground lightgrey
         .log tag configure error -foreground red
+
+        # bindings
         bind .cmd <Return> [namespace code {postIaCmd $cmdLine}]
         bind .cmd <Up> [namespace code {setCmdLine up}]
         bind .cmd <Down> [namespace code {setCmdLine dn}]
@@ -553,6 +572,9 @@ namespace eval iatclsh {
                 event generate .cmd <Left>}
         bind .cmd <bracketleft> {event generate .cmd <bracketright>; \
                 event generate .cmd <Left>}
+        bind .log <ButtonPress-3> {tk_popup .puMenu %X %Y}
+
+        # layout 
         grid .log -row 0 -column 0 -sticky nsew
         grid .sb -row 0 -column 1 -sticky ns
         grid .cmd -row 1 -column 0 -columnspan 2 -sticky ew 
@@ -568,7 +590,37 @@ namespace eval iatclsh {
         wm title . "iatclsh"
         focus .cmd
     }
-    
+     
+    # close current open interface and open a new one
+    proc reloadApp {} {
+        variable fd
+        variable autoCmd
+        variable interactiveCmd
+        variable cmdLine
+        variable busy
+        variable bgndRxBuf 
+        variable autoCmdComplete
+        close $fd
+        set autoCmd ""
+        set interactiveCmd ""
+        set cmdLine ""
+        set busy 0
+        set bgndRxBuf "\n"
+        .cmd config -state normal
+        set autoCmdComplete 1
+        loadApp
+    }
+
+    # initilise and log any messages from sourced files
+    proc loadApp {} {
+        set msg ""
+        if {![startUp msg]} {
+            tk_messageBox -type ok -icon error -title "Error" -message $msg
+            exit 1
+        }
+        appendLog $msg response
+    }
+
     proc main {} {
         variable showScrollBar
         variable sourceFiles
@@ -599,13 +651,7 @@ namespace eval iatclsh {
         # load history from previously saved file
         catch iatclsh::loadHistory
         
-        # initilise and log any messages from sourced files
-        set msg ""
-        if {![startUp msg]} {
-            tk_messageBox -type ok -icon error -title "Error" -message $msg
-            exit 1
-        }
-        appendLog $msg response
+        loadApp
         
         # load and run config file
         if {$iatclsh::configFile != ""} {
