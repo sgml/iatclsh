@@ -8,14 +8,14 @@ For example, to run iatclsh with provided example files with Linux:
     export IATCLSH_HOME=~/iatclsh
     export PATH=$PATH:$IATCLSH_HOME/sh
     cd $IATCLSH_HOME/examples
-    iatclsh -config example_config.tcl ia_example_hw.tcl
+    iatclsh -bg example_config.tcl ia_example_hw.tcl
 
 And an example for Windows:
 
     set IATCLSH_HOME=%HOMEPATH%\iatclsh
     set PATH=%PATH%;%IATCLSH_HOME%\win
     cd %IATCLSH_HOME%\examples
-    iatclsh -config example_config.tcl ia_example_hw.tcl
+    iatclsh -bg example_config.tcl ia_example_hw.tcl
 
 Tcl/Tk is required, at least version 8.5. Change files under sh/win for use 
 with different versions of Tcl and Tk.
