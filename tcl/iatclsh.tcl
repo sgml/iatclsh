@@ -9,14 +9,19 @@ namespace eval iatclsh {
             setStatusLeft setStatusRight getBusyString \
             addAction addCBAction addRBAction addSeparator 
             
-    variable configFile ""
+    # for command line 
+    variable bgScript ""
     variable sourceFiles [list]
     variable showScrollBar 0
+
+    # for command history
     variable HISTORY_MAX_CMDS 100
     variable LOG_MAX_LINES 10000
     variable cmdHistory [list]                       
     variable historyIndex 0
     variable currentEditCmd ""
+
+    # for running interactive/background commands
     variable bgndRxBuf ""    
     variable cmdLine ""
     variable lastCmdAuto 0
@@ -24,12 +29,19 @@ namespace eval iatclsh {
     variable bgCmd ""
     variable bgCmdComplete 0
     variable busy 0
-    variable statusHidden 1
     variable runStopped 0
     variable pause
+    variable reloadBgScriptScheduled 0
+    variable inRunCycle 0
+    variable bgScriptOk 1 
     variable fd
+    
+    # for actions
     variable subMenuCount 0
     variable traces [dict create]
+    variable statusHidden 1
+    
+    # for busy string
     variable busyCount 0
     variable busyTime [clock milliseconds]
     
@@ -37,7 +49,7 @@ namespace eval iatclsh {
     # successfully, otherwise 0
     proc parseCmdLineArgs {} {
         global argc argv 
-        variable configFile
+        variable bgScript
         variable sourceFiles
         variable showScrollBar
         set i 0
@@ -52,7 +64,7 @@ namespace eval iatclsh {
                     if {$i >= $argc} {
                         return 0
                     }
-                    set configFile [lindex $argv $i]
+                    set bgScript [lindex $argv $i]
                     incr i
                 } else {
                     return 0
@@ -556,7 +568,9 @@ namespace eval iatclsh {
         # pop up menu
         .puMenu add command -label "Clear" -command {::iatclsh::clearLog}
         .puMenu add command -label "Reload User Script" \
-                -command {iatclsh::reloadApp}
+                -command {iatclsh::reloadUserScript}
+        .puMenu add command -label "Reload Background Script" \
+                -command {iatclsh::reloadBgScript}
 
         # configure log
         .log configure -state disabled 
@@ -592,7 +606,7 @@ namespace eval iatclsh {
     }
      
     # close current open interface and open a new one
-    proc reloadApp {} {
+    proc reloadUserScript {} {
         variable fd
         variable bgCmd
         variable interactiveCmd
@@ -608,11 +622,33 @@ namespace eval iatclsh {
         set bgndRxBuf "\n"
         .cmd config -state normal
         set bgCmdComplete 1
-        loadApp
+        loadUserScript
+    }
+
+    proc reloadBgScript {} {
+        variable inRunCycle
+        variable reloadBgScriptScheduled 
+        variable bgScriptOk
+        if {$inRunCycle == 0} {
+            set reloadBgScriptScheduled 0
+            set bgScriptOk [loadBgScript]
+            if {$bgScriptOk} {
+                destroy .mbar.actions
+                menu .mbar.actions
+                executeInitialise
+                .mbar entryconfigure "Actions" -state normal
+                .puMenu entryconfigure "Reload Background Script" \
+                        -state normal
+            }
+        } else {
+            .mbar entryconfigure "Actions" -state disabled
+            .puMenu entryconfigure "Reload Background Script" -state disabled
+            set reloadBgScriptScheduled 1
+        }
     }
 
     # initilise and log any messages from sourced files
-    proc loadApp {} {
+    proc loadUserScript {} {
         set msg ""
         if {![startUp msg]} {
             tk_messageBox -type ok -icon error -title "Error" -message $msg
@@ -621,11 +657,65 @@ namespace eval iatclsh {
         appendLog $msg response
     }
 
+    # load background script. Returns 1 if successful, 0 otherwise.
+    proc loadBgScript {} {
+        if {[catch {namespace eval :: {source $iatclsh::bgScript}}]} {
+            appendLog $::errorInfo response
+            return 0
+        }
+        return 1 
+    }
+
+    # execute initialise command provided by background script. Returns 1 if 
+    # initialise isn't provided, or if initialise is provided and successfully 
+    # executes. Otherwise returns 0
+    proc executeInitialise {} {
+        if {[llength [info procs ::initialise]] == 1} {
+            if {[catch initialise]} {
+                appendLog $::errorInfo response
+                return 0
+            } 
+        }
+        return 1
+    }
+
+    # repeatedly execute run command provided by background script
+    proc executeRun {} {
+        variable runStopped
+        variable pause
+        variable inRunCycle
+        variable reloadBgScriptScheduled
+        variable bgScriptOk
+        while {1} {
+            set inRunCycle 1
+            if {$bgScriptOk == 0} {
+                break
+            }
+            if {$runStopped == 0 && [llength [info procs ::run]] == 1} {
+                if {[catch {set rv [run]}]} {
+                    appendLog $::errorInfo response
+                    break
+                }
+                if {[string is integer -strict $rv]} {
+                    set runStopped 0
+                    after $rv {set pause 0}
+                } else {
+                    set runStopped 1
+                }
+            } 
+            set inRunCycle 0
+            if {$reloadBgScriptScheduled} {
+                reloadBgScript
+            }   
+            vwait pause
+        }
+        set inRunCycle 0
+    }
+
     proc main {} {
         variable showScrollBar
         variable sourceFiles
-        variable runStopped
-        variable pause
+        variable bgScript
         
         buildGui
             
@@ -651,34 +741,12 @@ namespace eval iatclsh {
         # load history from previously saved file
         catch iatclsh::loadHistory
         
-        loadApp
+        loadUserScript
         
-        # load and run config file
-        if {$iatclsh::configFile != ""} {
-            if {[catch {namespace eval :: {source $iatclsh::configFile}}]} {
-                appendLog $::errorInfo response
-            } else {
-                if {[llength [info procs ::initialise]] == 1} {
-                    if {[catch initialise]} {
-                        appendLog $::errorInfo response
-                        return
-                    } 
-                }
-                while {1} {
-                    if {$runStopped == 0 && [llength [info procs ::run]] == 1} {
-                        if {[catch {set rv [run]}]} {
-                            appendLog $::errorInfo response
-                            break
-                        }
-                        if {[string is integer -strict $rv]} {
-                            set runStopped 0
-                            after $rv {set pause 0}
-                        } else {
-                            set runStopped 1
-                        }
-                    } 
-                    vwait pause
-                }
+        # load and run backgound script
+        if {$bgScript != "" && [loadBgScript]} {
+            if {[executeInitialise]} {
+                executeRun
             }
         }
     }
