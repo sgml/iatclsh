@@ -1,6 +1,9 @@
+#!/usr/bin/tclsh8.5
+
 #
 # iatclsh.tcl
 #
+package require Tk
 
 namespace eval iatclsh {    
     namespace export \
@@ -83,12 +86,9 @@ namespace eval iatclsh {
         variable fd 
         global tcl_platform
         upvar $m msg
-        switch $tcl_platform(platform) {
-            "unix" {set prog "app_if.sh"}
-            "windows" {set prog "app_if.bat"}
-            "default" {set msg "platform?"; return 0}
-        }
-        if {[catch {set fd [open "|$prog" r+]} err]} {
+        set exe [info nameofexecutable]
+        set f [file dirname [info script]]/app_if.tcl
+        if {[catch {set fd [open "|$exe $f" r+]} err]} {
             set msg $err; 
             return 0
         }

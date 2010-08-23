@@ -1,22 +1,12 @@
-To run iatclsh, set environment variables IATCLSH_HOME and PATH. Use command
-line parameter '-config' to specify a configuration file. Files to source are
-also specified on the command line. 
+Use command line parameter '-bg' to specify a background file. Files to source
+may also be specified on the command line. 
 
 For example, to run iatclsh with provided example files with Linux:
 
-    #!/bin/bash
-    export IATCLSH_HOME=~/iatclsh
-    export PATH=$PATH:$IATCLSH_HOME/sh
-    cd $IATCLSH_HOME/examples
-    iatclsh -bg example_config.tcl ia_example_hw.tcl
+    iatclsh.tcl -bg ../examples/example_config.tcl ../examples/ia_example_hw.tcl
 
-And an example for Windows:
+And for Windows:
 
-    set IATCLSH_HOME=%HOMEPATH%\iatclsh
-    set PATH=%PATH%;%IATCLSH_HOME%\win
-    cd %IATCLSH_HOME%\examples
-    iatclsh -bg example_config.tcl ia_example_hw.tcl
+    tclsh85 iatclsh.tcl -bg ..\examples\example_config.tcl ..\examples\ia_example_hw.tcl
 
-Tcl/Tk is required, at least version 8.5. Change files under sh/win for use 
-with different versions of Tcl and Tk.
 

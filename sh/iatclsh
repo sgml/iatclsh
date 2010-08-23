@@ -1,3 +1,0 @@
-#!/bin/bash
-wish8.5 $IATCLSH_HOME/tcl/iatclsh.tcl $@  
-
