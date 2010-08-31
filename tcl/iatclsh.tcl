@@ -80,25 +80,18 @@ namespace eval iatclsh {
         return 1
     }
   
-    # open pipe to app interface and source any supplied files. Returns a 
-    # string message in m, and 1 for success, 0 for fail
-    proc startUp {m} {
+    # open pipe to app interface and source any supplied files 
+    proc startUp {} {
         variable fd 
-        global tcl_platform
-        upvar $m msg
         set exe [info nameofexecutable]
         set f [file dirname [info script]]/app_if.tcl
-        if {[catch {set fd [open "|$exe $f" r+]} err]} {
-            set msg $err; 
-            return 0
-        }
-        set msg [sourceCmdLineFiles]
-        chan event $fd readable ::iatclsh::readPipe
+        set fd [open "|$exe $f" r+]
         chan configure $fd -blocking 0
-        return 1
+        sourceCmdLineFiles
+        chan event $fd readable ::iatclsh::readPipe
     }
 
-    # source files specified on the command line. Returns any message 
+    # source files specified on the command line. Writes to log any message 
     # resulting from sourcing the files
     proc sourceCmdLineFiles {} {
         variable sourceFiles
@@ -108,14 +101,23 @@ namespace eval iatclsh {
             puts $fd "source $f"
             puts $fd "\x03"; flush $fd
             while {1} {
-                set l [gets $fd]
-                if {$l == "\x03"} {
-                    break
+                set l [read $fd]
+                if {$l == ""} {
+                    after 1
+                    continue
                 }
-                set msg "$msg$l\n"
+                if {[regexp {^(.*)\x03\n$} $l match l]} {
+                    if {$l != ""} {
+                        appendLog "$l" response
+                        update idletasks
+                    }
+                    break
+                } else {
+                    appendLog "$l" response
+                    update idletasks
+                }
             }
         }
-        return $msg
     }
     
     # event handler for reading pipe
@@ -622,7 +624,7 @@ namespace eval iatclsh {
         set bgndRxBuf "\n"
         .cmd config -state normal
         set bgCmdComplete 1
-        loadUserScript
+        startUp 
     }
 
     proc reloadBgScript {} {
@@ -645,16 +647,6 @@ namespace eval iatclsh {
             .puMenu entryconfigure "Reload Background Script" -state disabled
             set reloadBgScriptScheduled 1
         }
-    }
-
-    # initilise and log any messages from sourced files
-    proc loadUserScript {} {
-        set msg ""
-        if {![startUp msg]} {
-            tk_messageBox -type ok -icon error -title "Error" -message $msg
-            exit 1
-        }
-        appendLog $msg response
     }
 
     # load background script. Returns 1 if successful, 0 otherwise.
@@ -740,8 +732,12 @@ namespace eval iatclsh {
         
         # load history from previously saved file
         catch iatclsh::loadHistory
+
+        # show gui before start up
+        update 
         
-        loadUserScript
+        # open app interface and source any files
+        startUp 
         
         # load and run backgound script
         if {$bgScript != "" && [loadBgScript]} {
