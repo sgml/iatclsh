@@ -14,7 +14,7 @@ namespace eval iatclsh {
             
     # for command line 
     variable bgScript ""
-    variable sourceFiles [list]
+    variable userFile 
     variable showScrollBar 0
 
     # for command history
@@ -37,6 +37,7 @@ namespace eval iatclsh {
     variable reloadBgScriptScheduled 0
     variable inRunCycle 0
     variable bgScriptOk 1 
+    variable appIf [file dirname [info script]]/app_if.tcl
     variable fd
     
     # for actions
@@ -53,7 +54,7 @@ namespace eval iatclsh {
     proc parseCmdLineArgs {} {
         global argc argv 
         variable bgScript
-        variable sourceFiles
+        variable userFile "" 
         variable showScrollBar
         set i 0
         while {$i < $argc} {
@@ -73,49 +74,54 @@ namespace eval iatclsh {
                     return 0
                 }
             } else {
-                lappend sourceFiles $t
+                if {$userFile == ""} {
+                    set userFile $t
+                } else {
+                    return 0
+                }
                 incr i
             }
         }
         return 1
     }
   
-    # open pipe to app interface and source any supplied files 
+    # open pipe to app interface and source any user file 
     proc startUp {} {
         variable fd 
+        variable userFile
+        variable appIf
         set exe [info nameofexecutable]
-        set f [file dirname [info script]]/app_if.tcl
-        set fd [open "|$exe $f" r+]
+        set fd [open "|$exe $appIf" r+]
         chan configure $fd -blocking 0
-        sourceCmdLineFiles
+        if {$userFile != ""} {
+            .cmd configure -state disabled
+            sourceUserFile
+            .cmd configure -state normal
+        }
         chan event $fd readable ::iatclsh::readPipe
     }
 
-    # source files specified on the command line. Writes to log any message 
-    # resulting from sourcing the files
-    proc sourceCmdLineFiles {} {
-        variable sourceFiles
+    # source user file. Writes to log any resulting messages
+    proc sourceUserFile {} {
+        variable userFile
         variable fd 
-        set msg ""
-        foreach f $sourceFiles {
-            puts $fd "source $f"
-            puts $fd "\x03"; flush $fd
-            while {1} {
-                set l [read $fd]
-                if {$l == ""} {
-                    after 1
-                    continue
-                }
-                if {[regexp {^(.*)\x03\n$} $l match l]} {
-                    if {$l != ""} {
-                        appendLog "$l" response
-                        update idletasks
-                    }
-                    break
-                } else {
+        puts $fd "source $userFile"
+        puts $fd "\x03"; flush $fd
+        while {1} {
+            set l [read $fd]
+            if {$l == ""} {
+                after 1
+                continue
+            } 
+            if {[regexp {^(.*)\x03\n$} $l match l]} {
+                if {$l != ""} {
                     appendLog "$l" response
                     update idletasks
                 }
+                break
+            } else {
+                appendLog "$l" response
+                update idletasks
             }
         }
     }
@@ -568,11 +574,18 @@ namespace eval iatclsh {
         menu .puMenu
 
         # pop up menu
-        .puMenu add command -label "Clear" -command {::iatclsh::clearLog}
+        .puMenu add command -label "Load User Script" \
+                -command {iatclsh::openUserScript}
+        .puMenu add command -label "Load Background Script" \
+                -command {iatclsh::openBgScript}
+        .puMenu add separator
         .puMenu add command -label "Reload User Script" \
                 -command {iatclsh::reloadUserScript}
         .puMenu add command -label "Reload Background Script" \
                 -command {iatclsh::reloadBgScript}
+        .puMenu add separator
+        .puMenu add command -label "Clear" -command {::iatclsh::clearLog}
+        .puMenu entryconfigure "Load Background Script" -state disabled
 
         # configure log
         .log configure -state disabled 
@@ -607,8 +620,33 @@ namespace eval iatclsh {
         focus .cmd
     }
      
+    # present a file open dialog and load user script if one is chosen
+    proc openUserScript {} {
+        variable userFile  
+        set f [tk_getOpenFile -filetypes {{Tcl .tcl} {All *}}]
+        if {$f == ""} {
+            return
+        }
+        set userFile $f
+        updateGuiState
+        clearIaCommand
+        startUp
+    }
+
+    # present a file open dialog and load background script if one is chosen
+    proc openBgScript {} {
+        set f [tk_getOpenFile -filetypes {{Tcl .tcl} {All *}}]
+        puts "File: $f"
+    }
+
     # close current open interface and open a new one
     proc reloadUserScript {} {
+        clearIaCommand
+        startUp 
+    }
+
+    # clear any pending interactive command ready for loading of user script
+    proc clearIaCommand {} {
         variable fd
         variable bgCmd
         variable interactiveCmd
@@ -624,9 +662,33 @@ namespace eval iatclsh {
         set bgndRxBuf "\n"
         .cmd config -state normal
         set bgCmdComplete 1
-        startUp 
     }
 
+    # update gui state based on state of program
+    proc updateGuiState {} {
+        variable userFile
+        variable bgScript
+        if {[llength $userFile] == 0} {
+            .puMenu entryconfigure "Reload User Script" -state disabled
+        } else {
+            .puMenu entryconfigure "Reload User Script" -state normal
+        }
+        if {$bgScript == ""} {
+            .puMenu entryconfigure "Reload Background Script" -state disabled
+        } else {
+            .puMenu entryconfigure "Reload Background Script" -state normal
+        }
+        # set main window title bar 
+        if {$userFile == ""} {
+            wm title . "iatclsh"
+        } else {
+            wm title . "iatclsh - [file tail $userFile]"    
+        }
+    }
+
+    # reload background script, either immediately if a background command
+    # isn't running, otherwise schedule reload for when background command 
+    # completes
     proc reloadBgScript {} {
         variable inRunCycle
         variable reloadBgScriptScheduled 
@@ -706,7 +768,6 @@ namespace eval iatclsh {
 
     proc main {} {
         variable showScrollBar
-        variable sourceFiles
         variable bgScript
         
         buildGui
@@ -721,25 +782,18 @@ namespace eval iatclsh {
             grid .sb
         }
         
-        # set main window title bar 
-        if {[llength sourceFiles] != 0} {
-            set t ""
-            foreach f $sourceFiles {
-                set t "$t [file tail $f]"
-            }
-            wm title . "[wm title .] -$t"    
-        }
-        
         # load history from previously saved file
         catch iatclsh::loadHistory
 
         # show gui before start up
         update 
         
-        # open app interface and source any files
-        startUp 
+        updateGuiState
         
-        # load and run backgound script
+        # open app interface and source any user file
+        startUp 
+
+        # load and run background script
         if {$bgScript != "" && [loadBgScript]} {
             if {[executeInitialise]} {
                 executeRun

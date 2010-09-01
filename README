@@ -1,4 +1,4 @@
-Use command line parameter '-bg' to specify a background file. Files to source
+Use command line parameter '-bg' to specify a background file. File to source
 may also be specified on the command line. 
 
 For example, to run iatclsh with provided example files with Linux:
