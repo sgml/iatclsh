@@ -105,7 +105,8 @@ namespace eval iatclsh {
     proc sourceUserFile {} {
         variable userFile
         variable fd 
-        puts $fd "source $userFile"
+        puts $fd "cd [file dirname $userFile]"
+        puts $fd "source [file tail $userFile]"
         puts $fd "\x03"; flush $fd
         while {1} {
             set l [read $fd]
@@ -713,7 +714,10 @@ namespace eval iatclsh {
 
     # load background script. Returns 1 if successful, 0 otherwise.
     proc loadBgScript {} {
-        if {[catch {namespace eval :: {source $iatclsh::bgScript}}]} {
+        if {[catch {namespace eval :: {
+                    cd [file dirname $iatclsh::bgScript]
+                    source [file tail $iatclsh::bgScript]
+                }}]} {
             appendLog $::errorInfo response
             return 0
         }
