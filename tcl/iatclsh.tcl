@@ -36,6 +36,7 @@ namespace eval iatclsh {
     variable pause
     variable reloadBgScriptScheduled 0
     variable inRunCycle 0
+    variable running 0
     variable bgScriptOk 1 
     variable appIf [file dirname [info script]]/app_if.tcl
     variable fd
@@ -111,7 +112,7 @@ namespace eval iatclsh {
         while {1} {
             set l [read $fd]
             if {$l == ""} {
-                after 1
+                after 50
                 continue
             } 
             if {[regexp {^(.*)\x03\n$} $l match l]} {
@@ -586,7 +587,6 @@ namespace eval iatclsh {
                 -command {iatclsh::reloadBgScript}
         .puMenu add separator
         .puMenu add command -label "Clear" -command {::iatclsh::clearLog}
-        .puMenu entryconfigure "Load Background Script" -state disabled
 
         # configure log
         .log configure -state disabled 
@@ -620,7 +620,29 @@ namespace eval iatclsh {
         wm title . "iatclsh"
         focus .cmd
     }
-     
+ 
+    # update gui state based on state of program
+    proc updateGuiState {} {
+        variable userFile
+        variable bgScript
+        if {[llength $userFile] == 0} {
+            .puMenu entryconfigure "Reload User Script" -state disabled
+        } else {
+            .puMenu entryconfigure "Reload User Script" -state normal
+        }
+        if {$bgScript == ""} {
+            .puMenu entryconfigure "Reload Background Script" -state disabled
+        } else {
+            .puMenu entryconfigure "Reload Background Script" -state normal
+        }
+        # set main window title bar 
+        if {$userFile == ""} {
+            wm title . "iatclsh"
+        } else {
+            wm title . "iatclsh - [file tail $userFile]"    
+        }
+    }
+
     # present a file open dialog and load user script if one is chosen
     proc openUserScript {} {
         variable userFile  
@@ -636,8 +658,13 @@ namespace eval iatclsh {
 
     # present a file open dialog and load background script if one is chosen
     proc openBgScript {} {
+        variable bgScript
         set f [tk_getOpenFile -filetypes {{Tcl .tcl} {All *}}]
-        puts "File: $f"
+        if {$f == ""} {
+            return
+        }
+        set bgScript $f
+        reloadBgScript
     }
 
     # close current open interface and open a new one
@@ -664,29 +691,7 @@ namespace eval iatclsh {
         .cmd config -state normal
         set bgCmdComplete 1
     }
-
-    # update gui state based on state of program
-    proc updateGuiState {} {
-        variable userFile
-        variable bgScript
-        if {[llength $userFile] == 0} {
-            .puMenu entryconfigure "Reload User Script" -state disabled
-        } else {
-            .puMenu entryconfigure "Reload User Script" -state normal
-        }
-        if {$bgScript == ""} {
-            .puMenu entryconfigure "Reload Background Script" -state disabled
-        } else {
-            .puMenu entryconfigure "Reload Background Script" -state normal
-        }
-        # set main window title bar 
-        if {$userFile == ""} {
-            wm title . "iatclsh"
-        } else {
-            wm title . "iatclsh - [file tail $userFile]"    
-        }
-    }
-
+    
     # reload background script, either immediately if a background command
     # isn't running, otherwise schedule reload for when background command 
     # completes
@@ -694,6 +699,7 @@ namespace eval iatclsh {
         variable inRunCycle
         variable reloadBgScriptScheduled 
         variable bgScriptOk
+        variable running
         if {$inRunCycle == 0} {
             set reloadBgScriptScheduled 0
             set bgScriptOk [loadBgScript]
@@ -704,6 +710,9 @@ namespace eval iatclsh {
                 .mbar entryconfigure "Actions" -state normal
                 .puMenu entryconfigure "Reload Background Script" \
                         -state normal
+                if {$running == 0} {
+                    executeRun
+                } 
             }
         } else {
             .mbar entryconfigure "Actions" -state disabled
@@ -742,8 +751,10 @@ namespace eval iatclsh {
         variable runStopped
         variable pause
         variable inRunCycle
+        variable running
         variable reloadBgScriptScheduled
         variable bgScriptOk
+        set running 1
         while {1} {
             set inRunCycle 1
             if {$bgScriptOk == 0} {
@@ -768,6 +779,7 @@ namespace eval iatclsh {
             vwait pause
         }
         set inRunCycle 0
+        set running 0
     }
 
     proc main {} {
