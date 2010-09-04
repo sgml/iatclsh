@@ -33,7 +33,6 @@ namespace eval iatclsh {
     variable bgCmdComplete 0
     variable busy 0
     variable runStopped 0
-    variable pause
     variable reloadBgScriptScheduled 0
     variable inRunCycle 0
     variable running 0
@@ -533,10 +532,9 @@ namespace eval iatclsh {
     # start executing run procedure 
     proc start {} {
         variable runStopped
-        variable pause 
         if {$runStopped} {
             set runStopped 0
-            after 0 {set pause 0}
+            executeRun
         }
     }
 
@@ -749,37 +747,33 @@ namespace eval iatclsh {
     # repeatedly execute run command provided by background script
     proc executeRun {} {
         variable runStopped
-        variable pause
         variable inRunCycle
         variable running
         variable reloadBgScriptScheduled
         variable bgScriptOk
         set running 1
-        while {1} {
-            set inRunCycle 1
-            if {$bgScriptOk == 0} {
-                break
-            }
-            if {$runStopped == 0 && [llength [info procs ::run]] == 1} {
-                if {[catch {set rv [run]}]} {
-                    appendLog $::errorInfo response
-                    break
-                }
-                if {[string is integer -strict $rv]} {
-                    set runStopped 0
-                    after $rv {set pause 0}
-                } else {
-                    set runStopped 1
-                }
-            } 
+        set inRunCycle 1
+        if {$bgScriptOk == 0} {
             set inRunCycle 0
-            if {$reloadBgScriptScheduled} {
-                reloadBgScript
-            }   
-            vwait pause
+            set running 0
         }
+        if {$runStopped == 0 && [llength [info procs ::run]] == 1} {
+            if {[catch {set rv [run]}]} {
+                appendLog $::errorInfo response
+                set inRunCycle 0
+                set running 0
+            }
+            if {[string is integer -strict $rv]} {
+                set runStopped 0
+                after $rv iatclsh::executeRun
+            } else {
+                set runStopped 1
+            }
+        } 
         set inRunCycle 0
-        set running 0
+        if {$reloadBgScriptScheduled} {
+            reloadBgScript
+        }   
     }
 
     proc main {} {
