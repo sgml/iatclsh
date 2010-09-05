@@ -6,11 +6,12 @@
 package require Tk
 
 namespace eval iatclsh {    
-    namespace export \
+    set exports [list \
+            slaveInterpVarChange \
             pending post cmd getLine getAll stop start \
             isStatusBarHidden showStatusBar hideStatusBar \
             setStatusLeft setStatusRight getBusyString \
-            addAction addCBAction addRBAction addSeparator 
+            addAction addCBAction addRBAction addSeparator] 
             
     # for command line 
     variable bgScript ""
@@ -39,6 +40,7 @@ namespace eval iatclsh {
     variable bgScriptOk 1 
     variable appIf [file dirname [info script]]/app_if.tcl
     variable fd
+    variable bgInterp ""
     
     # for actions
     variable subMenuCount 0
@@ -449,23 +451,26 @@ namespace eval iatclsh {
         if {[. cget -menu] == ""} {
             displayMenuBar
         }
-        .mbar.actions add command -label $label -command $command
+        .mbar.actions add command -label $label \
+                -command "$::iatclsh::bgInterp eval $command"
     }
     
     # add check box actions to action menu
     proc addCBAction {label var args} {
+        variable bgInterp
         if {[. cget -menu] == ""} {
             displayMenuBar
         }
-        .mbar.actions add checkbutton -label $label -variable $var
+        global shadow_$var
+        set shadow_$var [$bgInterp eval set ::$var] 
+        .mbar.actions add checkbutton -label $label -variable shadow_$var
         set command [getActionParam "-command" {*}$args]
-        if {$command != ""} {
-            addVariableTrace $var $command
-        }
+        addVariableTraces $var $command
     }
 
     # add radio button actions to action menu
     proc addRBAction {labels var args} {
+        variable bgInterp
         if {[. cget -menu] == ""} {
             displayMenuBar
         }
@@ -477,13 +482,13 @@ namespace eval iatclsh {
             menu $m.$tail
             set m $m.$tail
         } 
+        global shadow_$var
+        set shadow_$var [$bgInterp eval set ::$var] 
         foreach label $labels {
-            $m add radiobutton -label $label -variable $var
+            $m add radiobutton -label $label -variable shadow_$var
         }
         set command [getActionParam "-command" {*}$args]
-        if {$command != ""} {
-            addVariableTrace $var $command
-        }
+        addVariableTraces $var $command
     }
 
     # add separator to actions menu
@@ -509,18 +514,36 @@ namespace eval iatclsh {
         return "" 
     }
 
-    # add trace to an action variable
-    proc addVariableTrace {var command} {
-        global $var
+    # add traces to an action variable, both slave and shadow
+    proc addVariableTraces {var command} {
+        global shadow_$var
+        variable bgInterp
         variable traces
-        dict set traces $var $command
-        trace add variable $var write iatclsh::variableTrace
+        dict set traces shadow_$var $command
+        trace add variable shadow_$var write iatclsh::variableTrace
+        $bgInterp eval trace add variable ::$var write slaveInterpVarChange
     }
 
-    # for calling check-box and radio-button action commands
+    # for managing slave variables and calling check-box and radio-button 
+    # action commands
     proc variableTrace {name element op} {
         variable traces
-        [dict get $traces $name]
+        variable bgInterp
+        set command [dict get $traces $name]
+        set slaveName [string range $name 7 end]
+        set val [eval set ::$name]
+        $bgInterp eval set $slaveName $val
+        if {$command != ""} {
+            $bgInterp eval $command
+        }
+    }
+
+    # called when a variable is changed in the slave interpreter that is also
+    # used in the Actions menu
+    proc slaveInterpVarChange {name element op} {
+        variable bgInterp
+        global shadow_$name
+        set shadow_$name [$bgInterp eval set ::$name] 
     }
 
     # stop executing run procedure
@@ -700,12 +723,13 @@ namespace eval iatclsh {
         variable running
         if {$inRunCycle == 0} {
             set reloadBgScriptScheduled 0
+            shutdownBgScriptState
             set bgScriptOk [loadBgScript]
             if {$bgScriptOk} {
-                destroy .mbar.actions
-                menu .mbar.actions
                 executeInitialise
-                .mbar entryconfigure "Actions" -state normal
+                if {[. cget -menu] == ".mbar"} {
+                    .mbar entryconfigure "Actions" -state normal
+                }
                 .puMenu entryconfigure "Reload Background Script" \
                         -state normal
                 if {$running == 0} {
@@ -719,12 +743,43 @@ namespace eval iatclsh {
         }
     }
 
+    proc shutdownBgScriptState {} {
+        variable traces
+        variable bgInterp
+        if {$bgInterp == ""} {
+            return
+        }
+        if {[llength [info procs ::closing]] == 1} {
+            ::closing
+        } 
+        setStatusRight ""
+        setStatusLeft ""
+        hideStatusBar
+        . configure -menu ""
+        destroy .mbar.actions
+        destroy .mbar
+        menu .mbar
+        menu .mbar.actions
+        . configure -menu 
+        interp delete $bgInterp
+        foreach var [dict keys $traces] {
+            unset ::$var
+        }
+        set traces ""
+    }
+
     # load background script. Returns 1 if successful, 0 otherwise.
     proc loadBgScript {} {
-        if {[catch {namespace eval :: {
+        variable exports
+        variable bgInterp
+        set bgInterp [interp create]
+        foreach e $exports {
+            $bgInterp alias $e ::iatclsh::$e
+        }
+        if {[catch {$bgInterp eval " 
                     cd [file dirname $iatclsh::bgScript]
                     source [file tail $iatclsh::bgScript]
-                }}]} {
+                "}]} {
             appendLog $::errorInfo response
             return 0
         }
@@ -735,8 +790,9 @@ namespace eval iatclsh {
     # initialise isn't provided, or if initialise is provided and successfully 
     # executes. Otherwise returns 0
     proc executeInitialise {} {
-        if {[llength [info procs ::initialise]] == 1} {
-            if {[catch initialise]} {
+        variable bgInterp
+        if {[$bgInterp eval {llength [info procs ::initialise]}] == 1} {
+            if {[catch {$bgInterp eval ::initialise}]} {
                 appendLog $::errorInfo response
                 return 0
             } 
@@ -751,14 +807,16 @@ namespace eval iatclsh {
         variable running
         variable reloadBgScriptScheduled
         variable bgScriptOk
+        variable bgInterp
         set running 1
         set inRunCycle 1
         if {$bgScriptOk == 0} {
             set inRunCycle 0
             set running 0
         }
-        if {$runStopped == 0 && [llength [info procs ::run]] == 1} {
-            if {[catch {set rv [run]}]} {
+        if {$runStopped == 0 && \
+                    [$bgInterp eval {llength [info procs ::run]}] == 1} {
+            if {[catch {set rv [$bgInterp eval run]}]} {
                 appendLog $::errorInfo response
                 set inRunCycle 0
                 set running 0
