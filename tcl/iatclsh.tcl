@@ -585,12 +585,13 @@ namespace eval iatclsh {
     # gui
     proc buildGui {} {
         # components
-        tk::text .log -background black -yscrollcommand ".sb set"
-        ttk::scrollbar .sb -command ".log yview"
-        ttk::entry .cmd -textvariable iatclsh::cmdLine
-        ttk::frame .status
-        ttk::label .status.left -textvariable iatclsh::statusLeft
-        ttk::label .status.right -textvariable iatclsh::statusRight
+        text .log -background black -yscrollcommand ".sb set"
+        scrollbar .sb -command ".log yview"
+        entry .cmd -highlightthickness 0 -textvariable iatclsh::cmdLine
+        frame .status
+        label .status.left -justify left -textvariable iatclsh::statusLeft
+        label .status.right -justify right \
+                -textvariable iatclsh::statusRight
         option add *Menu.tearOff 0
         menu .mbar
         menu .mbar.actions
