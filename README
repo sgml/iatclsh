@@ -1,12 +1,13 @@
-Use command line parameter '-bg' to specify a background script. Script to 
-source may also be specified on the command line. 
+To run iatclsh under Linux:
 
-For example, to run iatclsh with provided example files with Linux:
+    iatclsh.tcl
 
-    iatclsh.tcl -bg ../test/bg_example.tcl ../test/ia_example_hw.tcl
+And under Windows:
 
-And for Windows:
+    tclsh85 iatclsh.tcl
 
-    tclsh85 iatclsh.tcl -bg ..\test\bg_example.tcl ..\test\ia_example_hw.tcl
+User and background script may be specified on command line. Use command line
+parameter '-bg' to specify the background script. For example, with Linux:
 
+    iatclsh.tcl -bg bg_example.tcl ia_example_hw.tcl
 
