@@ -10,6 +10,13 @@ proc help {} {
     puts "supv      Get supply voltage"
     puts "supi      Get supply current"
     puts "temp      Get temperature from sensor (a/b)"
+    puts "test      Test routine"
+}
+
+proc test {} {
+    puts "Test proc"
+    after 20000
+    puts "Test done"
 }
 
 proc en {{en ""}} {
@@ -40,4 +47,4 @@ proc temp {sensor} {
 }
 
 help
-
+after 1000
