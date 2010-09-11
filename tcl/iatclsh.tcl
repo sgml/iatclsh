@@ -6,43 +6,71 @@
 package require Tk
 
 namespace eval iatclsh {    
-    set exports [list \
+    variable exports [list \
             slaveInterpVarChange \
             pending post cmd getLine getAll stop start \
             isStatusBarHidden showStatusBar hideStatusBar \
             setStatusLeft setStatusRight getBusyString \
             addAction addCBAction addRBAction addSeparator] 
             
-    # for command line 
+    # bgScript and userScript are for holding the background and user script
+    # filenames
     variable bgScript ""
-    variable userFile 
-    variable showScrollBar 0
+    variable userScript
 
-    # for command history
-    variable HISTORY_MAX_CMDS 100
+    # for user script: fd is the file descriptor for the pipe to the tclsh 
+    # running te user script; appIf is the path to the app_if.tcl script
+    variable fd
+    variable appIf [file dirname [info script]]/app_if.tcl
+
+    # for log and command history: LOG_MAX_LINES is the maximum number lines to
+    # store in the log widget;  HISTORY_MAX_COMMANDS is the maximum number of
+    # interactive commands to store; cmdHistory is a list where the interactive
+    # commands are stored; historyIndex is an index into cmdHistory; 
+    # currentEditCmd is a store for an interactive command currently being
+    # typed
     variable LOG_MAX_LINES 10000
+    variable HISTORY_MAX_CMDS 100
     variable cmdHistory [list]                       
     variable historyIndex 0
     variable currentEditCmd ""
 
-    # for running interactive/background commands
-    variable bgndRxBuf ""    
+    # for running interactive/background commands: cmdLine is the variables 
+    # associated with the command line entry widget; interactiveCmd is a buffer
+    # for storing an interactive command entered in gui; bgCmd is a buffer for
+    # storing a background command run from a background script; bgRxBuf is a 
+    # buffer for holding the result of running a background command; lastCmdBg
+    # indicates that the last command to run was a background command;
+    # bgndComplete indicates that a background command has run and completed;
+    # busy indicates that a command is running, either interactive or 
+    # background
     variable cmdLine ""
-    variable lastCmdAuto 0
     variable interactiveCmd ""
     variable bgCmd ""
+    variable bgndRxBuf ""    
+    variable lastCmdBg 0
     variable bgCmdComplete 0
     variable busy 0
-    variable runStopped 0
+
+    # for backgound script: reloadBgScriptScheduled indicates that the 
+    # background script has been sheculed for reload; bgScriptOk indicated that
+    # that a background script has been loaded ok; bgInterp is the 
+    # interpreter used for running background scripts
     variable reloadBgScriptScheduled 0
-    variable inRunCycle 0
-    variable running 0
     variable bgScriptOk 1 
-    variable appIf [file dirname [info script]]/app_if.tcl
-    variable fd
     variable bgInterp ""
     
-    # for actions
+    # for run command: running indicate that the run command is running or 
+    # scheduled to run; inRunCycle indicates that the run command is part way
+    # through executing; stopRun indicates that the run procedure should stop
+    variable running 0
+    variable inRunCycle 0
+    variable stopRun 0
+
+    # for user interface realting to background script: subMenuCount holds 
+    # count of menus added to Actions menu; traces maps Action menu variables
+    # to procedures to run when they change; statusHidden controls whether 
+    # the status bar is hidden
     variable subMenuCount 0
     variable traces [dict create]
     variable statusHidden 1
@@ -51,12 +79,15 @@ namespace eval iatclsh {
     variable busyCount 0
     variable busyTime [clock milliseconds]
     
+    # controls whether scrollbar is visable
+    variable showScrollBar 0
+
     # parse command line arguments. Returns 1 if command line parsed 
     # successfully, otherwise 0
     proc parseCmdLineArgs {} {
         global argc argv 
         variable bgScript
-        variable userFile "" 
+        variable userScript "" 
         variable showScrollBar
         set i 0
         while {$i < $argc} {
@@ -76,8 +107,8 @@ namespace eval iatclsh {
                     return 0
                 }
             } else {
-                if {$userFile == ""} {
-                    set userFile $t
+                if {$userScript == ""} {
+                    set userScript $t
                 } else {
                     return 0
                 }
@@ -90,25 +121,25 @@ namespace eval iatclsh {
     # open pipe to app interface and source any user file 
     proc startUp {} {
         variable fd 
-        variable userFile
+        variable userScript
         variable appIf
         set exe [info nameofexecutable]
         set fd [open "|$exe $appIf" r+]
         chan configure $fd -blocking 0
-        if {$userFile != ""} {
-            .cmd configure -state disabled
+        if {$userScript != ""} {
+            .cmdEntry configure -state disabled
             sourceUserFile
-            .cmd configure -state normal
+            .cmdEntry configure -state normal
         }
         chan event $fd readable ::iatclsh::readPipe
     }
 
     # source user file. Writes to log any resulting messages
     proc sourceUserFile {} {
-        variable userFile
+        variable userScript
         variable fd 
-        puts $fd "cd [file dirname $userFile]"
-        puts $fd "source [file tail $userFile]"
+        puts $fd "cd [file dirname $userScript]"
+        puts $fd "source [file tail $userScript]"
         puts $fd "\x03"; flush $fd
         while {1} {
             set l [read $fd]
@@ -150,9 +181,9 @@ namespace eval iatclsh {
     
     # process received messages
     proc processRxMsg {s} {
-        variable lastCmdAuto 
+        variable lastCmdBg
         variable bgndRxBuf
-        if {!$lastCmdAuto} {
+        if {!$lastCmdBg} {
             if {$s == "\x11\n"} {
                 clearLog
             } else {
@@ -169,11 +200,11 @@ namespace eval iatclsh {
         variable cmdLine 
         variable interactiveCmd
         variable bgCmd
-        variable lastCmdAuto
+        variable lastCmdBg
         variable busy
         variable bgCmdComplete
         set busy 0
-        if {$lastCmdAuto} {
+        if {$lastCmdBg} {
             set bgCmd ""
             set bgCmdComplete 1
             if {$interactiveCmd != ""} {
@@ -182,7 +213,7 @@ namespace eval iatclsh {
         } else {
             set cmdLine ""
             set interactiveCmd ""
-            .cmd config -state normal
+            .cmdEntry config -state normal
             if {$bgCmd != ""} {
                 sendACmd   
             }
@@ -222,7 +253,7 @@ namespace eval iatclsh {
         if {$cmd == ""} {
             appendLog "\n" command
         } else {
-            .cmd config -state disabled
+            .cmdEntry config -state disabled
             set interactiveCmd $cmd
             sendACmd 
         }
@@ -242,23 +273,23 @@ namespace eval iatclsh {
     proc sendACmd {} {
         variable interactiveCmd
         variable bgCmd
-        variable lastCmdAuto
+        variable lastCmdBg
         variable busy
         if {$busy} {
             return
         }
         if {$interactiveCmd != "" && $bgCmd == ""} {
-            set lastCmdAuto 0
+            set lastCmdBg 0
             sendCmd $interactiveCmd
         } elseif {$interactiveCmd == "" && $bgCmd != ""} {
-            set lastCmdAuto 1
+            set lastCmdBg 1
             sendCmd $bgCmd
         } else {
-            if {$lastCmdAuto} {
-                set lastCmdAuto 0  
+            if {$lastCmdBg} {
+                set lastCmdBg 0  
                 sendCmd $interactiveCmd
             } else {
-                set lastCmdAuto 1
+                set lastCmdBg 1
                 sendCmd $bgCmd    
             }
         }
@@ -270,10 +301,10 @@ namespace eval iatclsh {
         variable historyIndex 
         variable HISTORY_MAX_CMDS          
         variable fd 
-        variable lastCmdAuto 
+        variable lastCmdBg 
         variable busy
         set busy 1
-        if {!$lastCmdAuto} {
+        if {!$lastCmdBg} {
             appendLog "$cmdLine\n" command 
             if {$cmdLine != [lindex $cmdHistory end]} {
                 lappend cmdHistory $cmdLine
@@ -301,7 +332,7 @@ namespace eval iatclsh {
                 }
                 incr historyIndex -1
                 set cmdLine [lindex $cmdHistory $historyIndex]
-                .cmd icursor end
+                .cmdEntry icursor end
             }
         } elseif {$historyIndex < [llength $cmdHistory]} {
             incr historyIndex
@@ -310,7 +341,7 @@ namespace eval iatclsh {
             } else {
                 set cmdLine [lindex $cmdHistory $historyIndex]
             }
-            .cmd icursor end                             
+            .cmdEntry icursor end                             
         }
     }
     
@@ -548,15 +579,15 @@ namespace eval iatclsh {
 
     # stop executing run procedure
     proc stop {} {
-        variable runStopped
-        set runStopped 1
+        variable stopRun
+        set stopRun 1
     }
     
     # start executing run procedure 
     proc start {} {
-        variable runStopped
-        if {$runStopped} {
-            set runStopped 0
+        variable stopRun
+        if {$stopRun} {
+            set stopRun 0
             executeRun
         }
     }
@@ -587,7 +618,7 @@ namespace eval iatclsh {
         # components
         text .log -background black -yscrollcommand ".sb set"
         scrollbar .sb -command ".log yview"
-        entry .cmd -highlightthickness 0 -textvariable iatclsh::cmdLine
+        entry .cmdEntry -highlightthickness 0 -textvariable iatclsh::cmdLine
         frame .status
         label .status.left -justify left -textvariable iatclsh::statusLeft
         label .status.right -justify right \
@@ -599,16 +630,16 @@ namespace eval iatclsh {
 
         # pop up menu
         .puMenu add command -label "Load User Script" \
-                -command {iatclsh::openUserScript}
+                -command iatclsh::openUserScript
         .puMenu add command -label "Load Background Script" \
-                -command {iatclsh::openBgScript}
+                -command iatclsh::openBgScript
         .puMenu add separator
         .puMenu add command -label "Reload User Script" \
-                -command {iatclsh::reloadUserScript}
+                -command iatclsh::reloadUserScript
         .puMenu add command -label "Reload Background Script" \
-                -command {iatclsh::reloadBgScript}
+                -command iatclsh::reloadBgScript
         .puMenu add separator
-        .puMenu add command -label "Clear" -command {::iatclsh::clearLog}
+        .puMenu add command -label "Clear" -command ::iatclsh::clearLog
 
         # configure log
         .log configure -state disabled 
@@ -617,19 +648,19 @@ namespace eval iatclsh {
         .log tag configure error -foreground red
 
         # bindings
-        bind .cmd <Return> [namespace code {postIaCmd $cmdLine}]
-        bind .cmd <Up> [namespace code {setCmdLine up}]
-        bind .cmd <Down> [namespace code {setCmdLine dn}]
-        bind .cmd <braceleft> {event generate .cmd <braceright>; \
-                event generate .cmd <Left>}
-        bind .cmd <bracketleft> {event generate .cmd <bracketright>; \
-                event generate .cmd <Left>}
+        bind .cmdEntry <Return> {::iatclsh::postIaCmd $iatclsh::cmdLine}
+        bind .cmdEntry <Up> {::iatclsh::setCmdLine up}
+        bind .cmdEntry <Down> {::iatclsh::setCmdLine dn}
+        bind .cmdEntry <braceleft> {event generate .cmdEntry <braceright>; \
+                event generate .cmdEntry <Left>}
+        bind .cmdEntry <bracketleft> {event generate .cmdEntry <bracketright>; \
+                event generate .cmdEntry <Left>}
         bind .log <ButtonPress-3> {tk_popup .puMenu %X %Y}
 
         # layout 
         grid .log -row 0 -column 0 -sticky nsew
         grid .sb -row 0 -column 1 -sticky ns
-        grid .cmd -row 1 -column 0 -columnspan 2 -sticky ew 
+        grid .cmdEntry -row 1 -column 0 -columnspan 2 -sticky ew 
         grid .status -row 2 -column 0 -columnspan 2 -pady {5 0} -sticky ew
         grid columnconfigure . 0 -weight 1
         grid rowconfigure . 0 -weight 1
@@ -638,16 +669,16 @@ namespace eval iatclsh {
         grid columnconfigure .status 0 -weight 1                       
         grid remove .status
         grid remove .sb
-        wm protocol . WM_DELETE_WINDOW [namespace code closeApp] 
+        wm protocol . WM_DELETE_WINDOW ::iatclsh::closeApp 
         wm title . "iatclsh"
-        focus .cmd
+        focus .cmdEntry
     }
  
     # update gui state based on state of program
     proc updateGuiState {} {
-        variable userFile
+        variable userScript
         variable bgScript
-        if {[llength $userFile] == 0} {
+        if {[llength $userScript] == 0} {
             .puMenu entryconfigure "Reload User Script" -state disabled
         } else {
             .puMenu entryconfigure "Reload User Script" -state normal
@@ -658,21 +689,21 @@ namespace eval iatclsh {
             .puMenu entryconfigure "Reload Background Script" -state normal
         }
         # set main window title bar 
-        if {$userFile == ""} {
+        if {$userScript == ""} {
             wm title . "iatclsh"
         } else {
-            wm title . "iatclsh - [file tail $userFile]"    
+            wm title . "iatclsh - [file tail $userScript]"    
         }
     }
 
     # present a file open dialog and load user script if one is chosen
     proc openUserScript {} {
-        variable userFile  
+        variable userScript  
         set f [tk_getOpenFile -filetypes {{Tcl .tcl} {All *}}]
         if {$f == ""} {
             return
         }
-        set userFile $f
+        set userScript $f
         updateGuiState
         clearIaCommand
         startUp
@@ -710,7 +741,7 @@ namespace eval iatclsh {
         set cmdLine ""
         set busy 0
         set bgndRxBuf "\n"
-        .cmd config -state normal
+        .cmdEntry config -state normal
         set bgCmdComplete 1
     }
     
@@ -736,6 +767,8 @@ namespace eval iatclsh {
                 if {$running == 0} {
                     executeRun
                 } 
+            } else {
+                set running 0
             }
         } else {
             .mbar entryconfigure "Actions" -state disabled
@@ -777,15 +810,17 @@ namespace eval iatclsh {
         foreach e $exports {
             $bgInterp alias $e ::iatclsh::$e
         }
-        if {[catch {$bgInterp eval " 
-                    cd [file dirname $iatclsh::bgScript]
-                    source [file tail $iatclsh::bgScript]
-                "}]} {
+        set script [format {
+                cd [file dirname %s] 
+                source [file tail %s]
+                } $iatclsh::bgScript $iatclsh::bgScript]
+        if {[catch {$bgInterp eval $script}]} {
             appendLog $::errorInfo response
             return 0
         }
         return 1 
     }
+
 
     # execute initialise command provided by background script. Returns 1 if 
     # initialise isn't provided, or if initialise is provided and successfully 
@@ -803,30 +838,22 @@ namespace eval iatclsh {
 
     # repeatedly execute run command provided by background script
     proc executeRun {} {
-        variable runStopped
+        variable stopRun 
         variable inRunCycle
         variable running
         variable reloadBgScriptScheduled
-        variable bgScriptOk
         variable bgInterp
         set running 1
         set inRunCycle 1
-        if {$bgScriptOk == 0} {
-            set inRunCycle 0
-            set running 0
-        }
-        if {$runStopped == 0 && \
+        if {$stopRun == 0 && \
                     [$bgInterp eval {llength [info procs ::run]}] == 1} {
             if {[catch {set rv [$bgInterp eval run]}]} {
                 appendLog $::errorInfo response
-                set inRunCycle 0
                 set running 0
-            }
-            if {[string is integer -strict $rv]} {
-                set runStopped 0
+            } elseif {[string is integer -strict $rv]} {
                 after $rv iatclsh::executeRun
             } else {
-                set runStopped 1
+                set running 0
             }
         } 
         set inRunCycle 0
