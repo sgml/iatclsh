@@ -47,4 +47,8 @@ proc temp {sensor} {
 }
 
 help
-after 1000
+foreach i {1 2 3 4 5} {
+    puts -nonewline "$i "; flush stdout
+    after 1000
+}
+

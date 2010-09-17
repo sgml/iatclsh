@@ -16,58 +16,58 @@ namespace eval iatclsh {
     # bgScript and userScript are for holding the background and user script
     # filenames
     variable bgScript ""
-    variable userScript
+    variable userScript ""
 
     # for user script: fd is the file descriptor for the pipe to the tclsh 
-    # running te user script; appIf is the path to the app_if.tcl script
-    variable fd
+    # running the user script; appIf is the path to the app_if.tcl script
+    variable fd ""
     variable appIf [file dirname [info script]]/app_if.tcl
 
     # for log and command history: LOG_MAX_LINES is the maximum number lines to
-    # store in the log widget;  HISTORY_MAX_COMMANDS is the maximum number of
+    # store in the log window;  HISTORY_MAX_COMMANDS is the maximum number of
     # interactive commands to store; cmdHistory is a list where the interactive
     # commands are stored; historyIndex is an index into cmdHistory; 
     # currentEditCmd is a store for an interactive command currently being
     # typed
     variable LOG_MAX_LINES 10000
     variable HISTORY_MAX_CMDS 100
-    variable cmdHistory [list]                       
+    variable cmdHistory [list]
     variable historyIndex 0
     variable currentEditCmd ""
 
-    # for running interactive/background commands: cmdLine is the variables 
+    # for running interactive/background commands: cmdLine is the variable 
     # associated with the command line entry widget; interactiveCmd is a buffer
     # for storing an interactive command entered in gui; bgCmd is a buffer for
     # storing a background command run from a background script; bgRxBuf is a 
     # buffer for holding the result of running a background command; lastCmdBg
     # indicates that the last command to run was a background command;
-    # bgndComplete indicates that a background command has run and completed;
+    # bgCmdComplete indicates that a background command has run and completed;
     # busy indicates that a command is running, either interactive or 
     # background
     variable cmdLine ""
     variable interactiveCmd ""
     variable bgCmd ""
-    variable bgndRxBuf ""    
+    variable bgRxBuf ""    
     variable lastCmdBg 0
     variable bgCmdComplete 0
     variable busy 0
 
     # for backgound script: reloadBgScriptScheduled indicates that the 
-    # background script has been sheculed for reload; bgScriptOk indicated that
+    # background script has been scheduled for reload; bgScriptOk indicates 
     # that a background script has been loaded ok; bgInterp is the 
     # interpreter used for running background scripts
     variable reloadBgScriptScheduled 0
     variable bgScriptOk 1 
     variable bgInterp ""
     
-    # for run command: running indicate that the run command is running or 
+    # for run command: running indicates that the run command is running or 
     # scheduled to run; inRunCycle indicates that the run command is part way
     # through executing; stopRun indicates that the run procedure should stop
     variable running 0
     variable inRunCycle 0
     variable stopRun 0
 
-    # for user interface realting to background script: subMenuCount holds 
+    # for user interface relating to background script: subMenuCount holds 
     # count of menus added to Actions menu; traces maps Action menu variables
     # to procedures to run when they change; statusHidden controls whether 
     # the status bar is hidden
@@ -75,7 +75,9 @@ namespace eval iatclsh {
     variable traces [dict create]
     variable statusHidden 1
     
-    # for busy string
+    # for busy string: busyCount keeps track of the current position in the
+    # busy string sequence; busyTime records the time of the last sequence 
+    # update
     variable busyCount 0
     variable busyTime [clock milliseconds]
     
@@ -87,7 +89,7 @@ namespace eval iatclsh {
     proc parseCmdLineArgs {} {
         global argc argv 
         variable bgScript
-        variable userScript "" 
+        variable userScript  
         variable showScrollBar
         set i 0
         while {$i < $argc} {
@@ -182,7 +184,7 @@ namespace eval iatclsh {
     # process received messages
     proc processRxMsg {s} {
         variable lastCmdBg
-        variable bgndRxBuf
+        variable bgRxBuf
         if {!$lastCmdBg} {
             if {$s == "\x11\n"} {
                 clearLog
@@ -191,7 +193,7 @@ namespace eval iatclsh {
             }
             update idletasks
         } else {
-            set bgndRxBuf $bgndRxBuf$s
+            set bgRxBuf $bgRxBuf$s
         }
     }
     
@@ -268,8 +270,8 @@ namespace eval iatclsh {
         sendACmd   
     }
     
-    # send a command, based on what commands are pending, interactive or auto,
-    # and what type of command was sent previously
+    # send a command, based on what commands are pending, interactive or 
+    # background, and what type of command was sent previously
     proc sendACmd {} {
         variable interactiveCmd
         variable bgCmd
@@ -397,10 +399,10 @@ namespace eval iatclsh {
     
     # sends command and returns all response from background command
     proc cmd {args} {
-        variable bgndRxBuf 
+        variable bgRxBuf 
         if {![pending]} {
             post {*}$args
-            set bgndRxBuf ""
+            set bgRxBuf ""
             return [getAll]
         }
         return ""
@@ -408,25 +410,25 @@ namespace eval iatclsh {
     
     # get a line of response from background command
     proc getLine {} {
-        variable bgndRxBuf
+        variable bgRxBuf
         while {1} {
-            if {[regexp {^(.*?)\n(.*)$} $bgndRxBuf match before after]} {
-                set bgndRxBuf $after
+            if {[regexp {^(.*?)\n(.*)$} $bgRxBuf match before after]} {
+                set bgRxBuf $after
                 return $before
             }
-            vwait ::iatclsh::bgndRxBuf
+            vwait ::iatclsh::bgRxBuf
         }
     }
 
     # get complete response from background command
     proc getAll {} {
-        variable bgndRxBuf
+        variable bgRxBuf
         variable bgCmdComplete
         while {1} {
             vwait ::iatclsh::bgCmdComplete
             if {$bgCmdComplete} {
-                regexp {(.*)\n$} $bgndRxBuf match line
-                set bgndRxBuf ""
+                regexp {(.*)\n$} $bgRxBuf match line
+                set bgRxBuf ""
                 return $line
             }
         }
@@ -589,7 +591,7 @@ namespace eval iatclsh {
         if {$stopRun} {
             set stopRun 0
             executeRun
-        }
+        } 
     }
 
     # returns next phase in a sequence of strings. If period is supplied, next
@@ -678,7 +680,7 @@ namespace eval iatclsh {
     proc updateGuiState {} {
         variable userScript
         variable bgScript
-        if {[llength $userScript] == 0} {
+        if {$userScript == ""} {
             .puMenu entryconfigure "Reload User Script" -state disabled
         } else {
             .puMenu entryconfigure "Reload User Script" -state normal
@@ -705,8 +707,7 @@ namespace eval iatclsh {
         }
         set userScript $f
         updateGuiState
-        clearIaCommand
-        startUp
+        reloadUserScript
     }
 
     # present a file open dialog and load background script if one is chosen
@@ -726,21 +727,22 @@ namespace eval iatclsh {
         startUp 
     }
 
-    # clear any pending interactive command ready for loading of user script
+    # clear any pending interactive and user command, ready for loading of 
+    # user script
     proc clearIaCommand {} {
         variable fd
         variable bgCmd
         variable interactiveCmd
         variable cmdLine
         variable busy
-        variable bgndRxBuf 
+        variable bgRxBuf 
         variable bgCmdComplete
         close $fd
         set bgCmd ""
         set interactiveCmd ""
         set cmdLine ""
         set busy 0
-        set bgndRxBuf "\n"
+        set bgRxBuf "\n"
         .cmdEntry config -state normal
         set bgCmdComplete 1
     }
@@ -820,7 +822,6 @@ namespace eval iatclsh {
         }
         return 1 
     }
-
 
     # execute initialise command provided by background script. Returns 1 if 
     # initialise isn't provided, or if initialise is provided and successfully 

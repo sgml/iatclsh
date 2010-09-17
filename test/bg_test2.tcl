@@ -10,3 +10,6 @@ proc run {} {
     return 100
 }
 
+proc closing {} {
+    puts "Closing"
+}
