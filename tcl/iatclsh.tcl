@@ -353,9 +353,7 @@ namespace eval iatclsh {
         variable fd
         close $fd
         saveHistory
-        if {[llength [info procs ::closing]] == 1} {
-            closing
-        }
+        executeClosing 
         exit 0
     }
     
@@ -786,9 +784,7 @@ namespace eval iatclsh {
         if {$bgInterp == ""} {
             return
         }
-        if {[llength [info procs ::closing]] == 1} {
-            ::closing
-        } 
+        executeClosing
         setStatusRight ""
         setStatusLeft ""
         hideStatusBar
@@ -831,6 +827,20 @@ namespace eval iatclsh {
         variable bgInterp
         if {[$bgInterp eval {llength [info procs ::initialise]}] == 1} {
             if {[catch {$bgInterp eval ::initialise}]} {
+                appendLog $::errorInfo response
+                return 0
+            } 
+        }
+        return 1
+    }
+
+    # execute closing command provided by background script. Returns 1 if 
+    # closing isn't provided, or if closing is provided and successfully 
+    # executes. Otherwise returns 0
+    proc executeClosing {} {
+        variable bgInterp
+        if {[$bgInterp eval {llength [info procs ::closing]}] == 1} {
+            if {[catch {$bgInterp eval ::closing}]} {
                 appendLog $::errorInfo response
                 return 0
             } 
