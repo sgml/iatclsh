@@ -588,7 +588,8 @@ namespace eval iatclsh {
     # start executing run procedure 
     proc start {} {
         variable stopRun
-        if {$stopRun} {
+        variable running
+        if {!$running} {
             set stopRun 0
             executeRun
         } 
@@ -856,7 +857,9 @@ namespace eval iatclsh {
             } else {
                 set running 0
             }
-        } 
+        } else {
+            set running 0
+        }
         set inRunCycle 0
         if {$reloadBgScriptScheduled} {
             reloadBgScript
