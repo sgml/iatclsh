@@ -52,10 +52,12 @@ namespace eval iatclsh {
     variable bgCmdComplete 0
     variable busy 0
 
-    # for backgound script: reloadBgScriptScheduled indicates that the 
-    # background script has been scheduled for reload; bgScriptOk indicates 
-    # that a background script has been loaded ok; bgInterp is the 
-    # interpreter used for running background scripts
+    # for backgound script: reloadUserScriptScheduled indicates that the user
+    # script is scheduled for reload; reloadBgScriptScheduled indicates that
+    # the background script has been scheduled for reload; bgScriptOk indicates 
+    # that a background script has been loaded ok; bgInterp is the interpreter 
+    # used for running background scripts
+    variable reloadUserScriptScheduled 0 
     variable reloadBgScriptScheduled 0
     variable bgScriptOk 1 
     variable bgInterp ""
@@ -631,14 +633,19 @@ namespace eval iatclsh {
 
         # pop up menu
         .puMenu add command -label "Load User Script" \
-                -command iatclsh::openUserScript
+                -command iatclsh::loadUserScriptUIEvent
         .puMenu add command -label "Load Background Script" \
-                -command iatclsh::openBgScript
+                -command iatclsh::loadBgScriptUIEvent
         .puMenu add separator
         .puMenu add command -label "Reload User Script" \
-                -command iatclsh::reloadUserScript
+                -command iatclsh::reloadUserScriptUIEvent
         .puMenu add command -label "Reload Background Script" \
-                -command iatclsh::reloadBgScript
+                -command iatclsh::reloadBgScriptUIEvent
+        .puMenu add separator
+        .puMenu add command -label "Reset tclsh" \
+                -command iatclsh::resetTclshUIEvent
+        .puMenu add command -label "Unload Background Script" \
+                -command iatclsh::unloadBgScriptUIEvent
         .puMenu add separator
         .puMenu add command -label "Clear" -command ::iatclsh::clearLog
 
@@ -679,16 +686,36 @@ namespace eval iatclsh {
     proc updateGuiState {} {
         variable userScript
         variable bgScript
-        if {$userScript == ""} {
+        variable reloadUserScriptScheduled 
+        variable reloadBgScriptScheduled 
+
+        # reload user script popup menu state
+        if {$userScript == "" || $reloadUserScriptScheduled} {
             .puMenu entryconfigure "Reload User Script" -state disabled
         } else {
             .puMenu entryconfigure "Reload User Script" -state normal
         }
-        if {$bgScript == ""} {
+
+        # reload/unload background script popup menu state
+        if {$bgScript == "" || $reloadBgScriptScheduled} {
             .puMenu entryconfigure "Reload Background Script" -state disabled
+            .puMenu entryconfigure "Unload Background Script" -state disabled
         } else {
             .puMenu entryconfigure "Reload Background Script" -state normal
+            .puMenu entryconfigure "Unload Background Script" -state normal
         }
+
+        # menu bar state
+        if {$reloadBgScriptScheduled} {
+            if {[. cget -menu] == ".mbar"} {
+                .mbar entryconfigure "Actions" -state disabled
+            }
+        } else {
+            if {[. cget -menu] == ".mbar"} {
+                .mbar entryconfigure "Actions" -state normal
+            }
+        }
+
         # set main window title bar 
         if {$userScript == ""} {
             wm title . "iatclsh"
@@ -698,37 +725,97 @@ namespace eval iatclsh {
     }
 
     # present a file open dialog and load user script if one is chosen
-    proc openUserScript {} {
+    proc loadUserScriptUIEvent {} {
         variable userScript  
+        variable reloadUserScriptScheduled 
+        variable inRunCycle
         set f [tk_getOpenFile -filetypes {{Tcl .tcl} {All *}}]
         if {$f == ""} {
             return
         }
         set userScript $f
-        updateGuiState
-        reloadUserScript
+        reloadUserScriptUIEvent
     }
 
     # present a file open dialog and load background script if one is chosen
-    proc openBgScript {} {
+    proc loadBgScriptUIEvent {} {
         variable bgScript
         set f [tk_getOpenFile -filetypes {{Tcl .tcl} {All *}}]
         if {$f == ""} {
             return
         }
         set bgScript $f
-        reloadBgScript
+        reloadBgScriptUIEvent
     }
 
-    # close current open interface and open a new one
+    # reload user script, either immediately if a background command isn't
+    # running, otherwise schedule reload for when background command completes
+    proc reloadUserScriptUIEvent {} {
+        variable reloadUserScriptScheduled 
+        variable inRunCycle
+        if {$inRunCycle == 0} {
+            reloadUserScript
+        } else {
+            set reloadUserScriptScheduled 1
+            updateGuiState
+        }
+    }
+
+    # reload background script, either immediately if a background command
+    # isn't running, otherwise schedule reload for when background command 
+    # completes
+    proc reloadBgScriptUIEvent {} {
+        variable reloadBgScriptScheduled 1
+        variable inRunCycle
+        if {$inRunCycle == 0} {
+            reloadBgScript
+        } else {
+            set reloadBgScriptScheduled 1
+            updateGuiState
+        }
+    }
+
+    # reset tclsh
+    proc resetTclshUIEvent {} {
+        variable userScript
+        variable bgRxBuf
+        variable bgCmdComplete
+        set userScript ""
+        set bgRxBuf "\n"
+        set bgCmdComplete 1
+        reloadUserScript
+    }
+
+    # unload background script 
+    proc unloadBgScriptUIEvent {} {
+        variable bgScript 
+        variable bgCmd
+        variable reloadBgScriptScheduled 
+        variable running
+        variable inRunCycle
+        variable stopRun
+        shutdownBgScriptState
+        set bgScript ""
+        set bgCmd ""
+        set reloadBgScriptScheduled 0
+        set running 0
+        set inRunCycle 0
+        set stopRun 1
+        updateGuiState 
+    }
+
+    # reload user script
     proc reloadUserScript {} {
-        clearIaCommand
+        variable reloadUserScriptScheduled 
+        set reloadUserScriptScheduled 0
+        shutdownIaScriptState 
         startUp 
+        updateGuiState
     }
-
+   
     # clear any pending interactive and user command, ready for loading of 
     # user script
-    proc clearIaCommand {} {
+    proc shutdownIaScriptState {} {
         variable fd
         variable bgCmd
         variable interactiveCmd
@@ -737,47 +824,35 @@ namespace eval iatclsh {
         variable bgRxBuf 
         variable bgCmdComplete
         close $fd
-        set bgCmd ""
+        # set bgCmd ""
         set interactiveCmd ""
         set cmdLine ""
         set busy 0
-        set bgRxBuf "\n"
+        # set bgRxBuf "\n"
         .cmdEntry config -state normal
-        set bgCmdComplete 1
+        # set bgCmdComplete 1
     }
-    
-    # reload background script, either immediately if a background command
-    # isn't running, otherwise schedule reload for when background command 
-    # completes
+ 
+    # reload background script
     proc reloadBgScript {} {
-        variable inRunCycle
         variable reloadBgScriptScheduled 
         variable bgScriptOk
         variable running
-        if {$inRunCycle == 0} {
-            set reloadBgScriptScheduled 0
-            shutdownBgScriptState
-            set bgScriptOk [loadBgScript]
-            if {$bgScriptOk} {
-                executeInitialise
-                if {[. cget -menu] == ".mbar"} {
-                    .mbar entryconfigure "Actions" -state normal
-                }
-                .puMenu entryconfigure "Reload Background Script" \
-                        -state normal
-                if {$running == 0} {
-                    executeRun
-                } 
-            } else {
-                set running 0
-            }
+        set reloadBgScriptScheduled 0
+        shutdownBgScriptState
+        set bgScriptOk [loadBgScript]
+        if {$bgScriptOk} {
+            executeInitialise
+            updateGuiState
+            if {$running == 0} {
+                executeRun
+            } 
         } else {
-            .mbar entryconfigure "Actions" -state disabled
-            .puMenu entryconfigure "Reload Background Script" -state disabled
-            set reloadBgScriptScheduled 1
+            set running 0
         }
     }
 
+    # shutdown background script user interface, i.e. menubar and statusbar
     proc shutdownBgScriptState {} {
         variable traces
         variable bgInterp
@@ -795,6 +870,7 @@ namespace eval iatclsh {
         menu .mbar.actions
         . configure -menu 
         interp delete $bgInterp
+        set bgInterp ""
         foreach var [dict keys $traces] {
             unset ::$var
         }
@@ -839,7 +915,8 @@ namespace eval iatclsh {
     # executes. Otherwise returns 0
     proc executeClosing {} {
         variable bgInterp
-        if {[$bgInterp eval {llength [info procs ::closing]}] == 1} {
+        if {$bgInterp != "" && [$bgInterp eval {llength \
+                    [info procs ::closing]}] == 1} {
             if {[catch {$bgInterp eval ::closing}]} {
                 appendLog $::errorInfo response
                 return 0
@@ -853,6 +930,7 @@ namespace eval iatclsh {
         variable stopRun 
         variable inRunCycle
         variable running
+        variable reloadUserScriptScheduled
         variable reloadBgScriptScheduled
         variable bgInterp
         set running 1
@@ -871,6 +949,9 @@ namespace eval iatclsh {
             set running 0
         }
         set inRunCycle 0
+        if {$reloadUserScriptScheduled} {
+            reloadUserScript
+        }   
         if {$reloadBgScriptScheduled} {
             reloadBgScript
         }   
