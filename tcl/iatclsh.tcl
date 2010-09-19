@@ -689,6 +689,20 @@ namespace eval iatclsh {
         variable reloadUserScriptScheduled 
         variable reloadBgScriptScheduled 
 
+        # load user script popup menu state
+        if {$reloadUserScriptScheduled} {
+            .puMenu entryconfigure "Load User Script" -state disabled
+        } else {
+            .puMenu entryconfigure "Load User Script" -state normal
+        }
+
+        # load background script popup menu state
+        if {$reloadBgScriptScheduled} {
+            .puMenu entryconfigure "Load Background Script" -state disabled
+        } else {
+            .puMenu entryconfigure "Load Background Script" -state normal
+        }
+
         # reload user script popup menu state
         if {$userScript == "" || $reloadUserScriptScheduled} {
             .puMenu entryconfigure "Reload User Script" -state disabled
@@ -696,12 +710,17 @@ namespace eval iatclsh {
             .puMenu entryconfigure "Reload User Script" -state normal
         }
 
-        # reload/unload background script popup menu state
+        # reload background script popup menu state
         if {$bgScript == "" || $reloadBgScriptScheduled} {
             .puMenu entryconfigure "Reload Background Script" -state disabled
-            .puMenu entryconfigure "Unload Background Script" -state disabled
         } else {
             .puMenu entryconfigure "Reload Background Script" -state normal
+        }
+
+        # unload background script popup menu state
+        if {$bgScript == ""} {
+            .puMenu entryconfigure "Unload Background Script" -state disabled
+        } else {
             .puMenu entryconfigure "Unload Background Script" -state normal
         }
 
@@ -794,7 +813,7 @@ namespace eval iatclsh {
         variable running
         variable inRunCycle
         variable stopRun
-        shutdownBgScriptState
+        shutdownBgScriptUi
         set bgScript ""
         set bgCmd ""
         set reloadBgScriptScheduled 0
@@ -824,13 +843,10 @@ namespace eval iatclsh {
         variable bgRxBuf 
         variable bgCmdComplete
         close $fd
-        # set bgCmd ""
         set interactiveCmd ""
         set cmdLine ""
         set busy 0
-        # set bgRxBuf "\n"
         .cmdEntry config -state normal
-        # set bgCmdComplete 1
     }
  
     # reload background script
@@ -839,11 +855,11 @@ namespace eval iatclsh {
         variable bgScriptOk
         variable running
         set reloadBgScriptScheduled 0
-        shutdownBgScriptState
+        updateGuiState
+        shutdownBgScriptUi
         set bgScriptOk [loadBgScript]
         if {$bgScriptOk} {
             executeInitialise
-            updateGuiState
             if {$running == 0} {
                 executeRun
             } 
@@ -853,7 +869,7 @@ namespace eval iatclsh {
     }
 
     # shutdown background script user interface, i.e. menubar and statusbar
-    proc shutdownBgScriptState {} {
+    proc shutdownBgScriptUi {} {
         variable traces
         variable bgInterp
         if {$bgInterp == ""} {
