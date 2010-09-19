@@ -854,17 +854,22 @@ namespace eval iatclsh {
         variable reloadBgScriptScheduled 
         variable bgScriptOk
         variable running
+        variable stopRun
         set reloadBgScriptScheduled 0
         updateGuiState
         shutdownBgScriptUi
         set bgScriptOk [loadBgScript]
         if {$bgScriptOk} {
-            executeInitialise
-            if {$running == 0} {
-                executeRun
-            } 
+            set stopRun 0
+            if {[executeInitialise]} {
+                if {$running == 0} {
+                    executeRun
+                } 
+            } else {
+                set stopRun 1
+            }
         } else {
-            set running 0
+            set stopRun 1
         }
     }
 
