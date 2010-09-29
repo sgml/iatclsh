@@ -21,7 +21,7 @@ namespace eval iatclsh {
     # for user script: fd is the file descriptor for the pipe to the tclsh 
     # running the user script; appIf is the path to the app_if.tcl script
     variable fd ""
-    variable appIf [file dirname [info script]]/app_if.tcl
+    variable appIf [file dirname [file normalize [info script]]]/app_if.tcl
 
     # for log and command history: LOG_MAX_LINES is the maximum number lines to
     # store in the log window;  HISTORY_MAX_COMMANDS is the maximum number of
