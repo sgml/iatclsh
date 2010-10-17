@@ -18,6 +18,10 @@ namespace eval iatclsh {
     variable bgScript ""
     variable userScript ""
 
+    # recent user and background scripts 
+    variable recentUserScripts [list]
+    variable recentBgScripts [list]
+
     # for user script: fd is the file descriptor for the pipe to the tclsh 
     # running the user script; appIf is the path to the app_if.tcl script
     variable fd ""
@@ -90,7 +94,6 @@ namespace eval iatclsh {
     # successfully, otherwise 0
     proc parseCmdLineArgs {} {
         global argc argv 
-        variable bgScript
         variable userScript  
         variable showScrollBar
         set i 0
@@ -105,14 +108,14 @@ namespace eval iatclsh {
                     if {$i >= $argc} {
                         return 0
                     }
-                    set bgScript [lindex $argv $i]
+                    setBgScript [lindex $argv $i]
                     incr i
                 } else {
                     return 0
                 }
             } else {
                 if {$userScript == ""} {
-                    set userScript $t
+                    setUserScript $t
                 } else {
                     return 0
                 }
@@ -121,7 +124,43 @@ namespace eval iatclsh {
         }
         return 1
     }
-  
+
+    # set user script and add to recent user scripts
+    proc setUserScript {s} {
+        variable userScript
+        variable recentUserScripts
+        set userScript $s
+        set index [lsearch -exact $recentUserScripts $s]
+        if {$index == -1} {
+            lappend recentUserScripts $s
+        } else {
+            set recentUserScripts [lreplace $recentUserScripts $index $index]
+            lappend recentUserScripts $s
+        }
+        if {[llength $recentUserScripts] > 4} {
+            set recentUserScripts [lrange $recentUserScripts end-3 end]
+        }
+        updateRecentUserScriptsMenu
+    }
+
+    # set background script and add to recent background scripts
+    proc setBgScript {s} {
+        variable bgScript
+        variable recentBgScripts
+        set bgScript $s
+        set index [lsearch -exact $recentBgScripts $s]
+        if {$index == -1} {
+            lappend recentBgScripts $s
+        } else {
+            set recentBgScripts [lreplace $recentBgScripts $index $index]
+            lappend recentBgScripts $s
+        }
+        if {[llength $recentBgScripts] > 4} {
+            set recentBgScripts [lrange $recentBgScripts end-3 end]
+        }
+        updateRecentBgScriptsMenu
+    }
+
     # open pipe to app interface and source any user file 
     proc startUp {} {
         variable fd 
@@ -362,28 +401,50 @@ namespace eval iatclsh {
     # load command history from ~./iatclsh file
     proc loadHistory {} {
         variable cmdHistory
+        variable recentUserScripts
+        variable recentBgScripts
         variable historyIndex
         set f [open "~/.iatclsh" r]
+        set recentUserScripts [list]
+        set recentBgScripts [list]
         while {1} {
-            gets $f cmd
+            gets $f s
             if {[eof $f]} {
                 break
             }
-            lappend cmdHistory $cmd
+            if {[string first "cmd:" $s] == 0} {
+                lappend cmdHistory [string range $s 5 end]
+            }
+            if {[string first "rus:" $s] == 0} {
+                lappend recentUserScripts [string range $s 5 end]
+            }
+            if {[string first "rbg:" $s] == 0} {
+                lappend recentBgScripts [string range $s 5 end]
+            }
         }
         set historyIndex [llength $cmdHistory]
+        updateRecentUserScriptsMenu
+        updateRecentBgScriptsMenu
         close $f
     }
 
     # save command history to ~./iatclsh file
     proc saveHistory {} {
         variable cmdHistory
+        variable recentUserScripts
+        variable recentBgScripts
         if {[lindex $cmdHistory end] == "exit"} {
             set cmdHistory [lreplace $cmdHistory end end]   
         }
         set f [open "~/.iatclsh" w]
         foreach cmd $cmdHistory {
-            puts $f $cmd   
+            puts $f "cmd: $cmd"   
+        }
+        foreach s $recentUserScripts {
+            puts $f "rus: $s"   
+        }
+        foreach s $recentBgScripts {
+            puts $f "rbg: $s"   
         }
         close $f
     }
@@ -630,6 +691,8 @@ namespace eval iatclsh {
         menu .mbar
         menu .mbar.actions
         menu .puMenu
+        menu .puMenu.recentUserScriptsMenu
+        menu .puMenu.recentBgScriptsMenu
 
         # pop up menu
         .puMenu add command -label "Load User Script" \
@@ -637,10 +700,10 @@ namespace eval iatclsh {
         .puMenu add command -label "Load Background Script" \
                 -command iatclsh::loadBgScriptUIEvent
         .puMenu add separator
-        .puMenu add command -label "Reload User Script" \
-                -command iatclsh::reloadUserScriptUIEvent
-        .puMenu add command -label "Reload Background Script" \
-                -command iatclsh::reloadBgScriptUIEvent
+        .puMenu add cascade -label "Recent User Scripts" \
+                -menu .puMenu.recentUserScriptsMenu
+        .puMenu add cascade -label "Recent Background Scripts" \
+                -menu .puMenu.recentBgScriptsMenu
         .puMenu add separator
         .puMenu add command -label "Reset tclsh" \
                 -command iatclsh::resetTclshUIEvent
@@ -703,25 +766,25 @@ namespace eval iatclsh {
             .puMenu entryconfigure "Load Background Script" -state normal
         }
 
-        # reload user script popup menu state
-        if {$userScript == "" || $reloadUserScriptScheduled} {
-            .puMenu entryconfigure "Reload User Script" -state disabled
-        } else {
-            .puMenu entryconfigure "Reload User Script" -state normal
-        }
-
-        # reload background script popup menu state
-        if {$bgScript == "" || $reloadBgScriptScheduled} {
-            .puMenu entryconfigure "Reload Background Script" -state disabled
-        } else {
-            .puMenu entryconfigure "Reload Background Script" -state normal
-        }
-
         # unload background script popup menu state
         if {$bgScript == ""} {
             .puMenu entryconfigure "Unload Background Script" -state disabled
         } else {
             .puMenu entryconfigure "Unload Background Script" -state normal
+        }
+
+        # recent user scripts menu state
+        if {[.puMenu.recentUserScriptsMenu index end] == "none"} {
+            .puMenu entryconfigure "Recent User Scripts" -state disabled
+        } else {
+            .puMenu entryconfigure "Recent User Scripts" -state normal
+        }
+
+        # recent background scripts menu state
+        if {[.puMenu.recentBgScriptsMenu index end] == "none"} {
+            .puMenu entryconfigure "Recent Background Scripts" -state disabled
+        } else {
+            .puMenu entryconfigure "Recent Background Scripts" -state normal
         }
 
         # menu bar state
@@ -743,33 +806,63 @@ namespace eval iatclsh {
         }
     }
 
+    # update entries for recent user scripts menu
+    proc updateRecentUserScriptsMenu {} {
+        variable recentUserScripts
+        .puMenu.recentUserScriptsMenu delete 0 end
+        foreach s $recentUserScripts {
+            .puMenu.recentUserScriptsMenu insert 0 command \
+                    -label [file tail $s] \
+                    -command [list ::iatclsh::recentUserScriptUIEvent $s]
+        }
+    }
+
+    # update entries for recent background scripts menu
+    proc updateRecentBgScriptsMenu {} {
+        variable recentBgScripts
+        .puMenu.recentBgScriptsMenu delete 0 end
+        foreach s $recentBgScripts {
+            .puMenu.recentBgScriptsMenu insert 0 command \
+                    -label [file tail $s] \
+                    -command [list ::iatclsh::recentBgScriptUIEvent $s]
+        }
+    }
+
     # present a file open dialog and load user script if one is chosen
     proc loadUserScriptUIEvent {} {
-        variable userScript  
-        variable reloadUserScriptScheduled 
-        variable inRunCycle
         set f [tk_getOpenFile -filetypes {{Tcl .tcl} {All *}}]
         if {$f == ""} {
             return
         }
-        set userScript $f
-        reloadUserScriptUIEvent
+        setUserScript $f
+        loadUserScript
     }
 
     # present a file open dialog and load background script if one is chosen
     proc loadBgScriptUIEvent {} {
-        variable bgScript
         set f [tk_getOpenFile -filetypes {{Tcl .tcl} {All *}}]
         if {$f == ""} {
             return
         }
-        set bgScript $f
-        reloadBgScriptUIEvent
+        setBgScript $f
+        loadBgScriptRequest
     }
 
-    # reload user script, either immediately if a background command isn't
+    # recent user script file selected from recent user files menu
+    proc recentUserScriptUIEvent {filename} {
+        setUserScript $filename
+        loadUserScript
+    }
+
+    # recent background script file selected from recent background files menu
+    proc recentBgScriptUIEvent {filename} {
+        setBgScript $filename
+        loadBgScriptRequest
+    }
+
+    # load user script, either immediately if a background command isn't
     # running, otherwise schedule reload for when background command completes
-    proc reloadUserScriptUIEvent {} {
+    proc loadUserScript {} {
         variable reloadUserScriptScheduled 
         variable inRunCycle
         if {$inRunCycle == 0} {
@@ -780,10 +873,10 @@ namespace eval iatclsh {
         }
     }
 
-    # reload background script, either immediately if a background command
+    # load background script, either immediately if a background command
     # isn't running, otherwise schedule reload for when background command 
     # completes
-    proc reloadBgScriptUIEvent {} {
+    proc loadBgScriptRequest {} {
         variable reloadBgScriptScheduled 1
         variable inRunCycle
         if {$inRunCycle == 0} {
