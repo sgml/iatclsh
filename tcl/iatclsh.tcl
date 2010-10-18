@@ -405,8 +405,6 @@ namespace eval iatclsh {
         variable recentBgScripts
         variable historyIndex
         set f [open "~/.iatclsh" r]
-        set recentUserScripts [list]
-        set recentBgScripts [list]
         while {1} {
             gets $f s
             if {[eof $f]} {
