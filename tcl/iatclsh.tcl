@@ -108,14 +108,14 @@ namespace eval iatclsh {
                     if {$i >= $argc} {
                         return 0
                     }
-                    setBgScript [lindex $argv $i]
+                    setBgScript [file normalize [lindex $argv $i]]
                     incr i
                 } else {
                     return 0
                 }
             } else {
                 if {$userScript == ""} {
-                    setUserScript $t
+                    setUserScript [file normalize $t]
                 } else {
                     return 0
                 }
@@ -128,37 +128,48 @@ namespace eval iatclsh {
     # set user script and add to recent user scripts
     proc setUserScript {s} {
         variable userScript
-        variable recentUserScripts
         set userScript $s
-        set index [lsearch -exact $recentUserScripts $s]
+        appendRecentUserScripts $s
+        updateRecentUserScriptsMenu
+    }
+
+    # append filename to recent user scripts, with a maximum length of four
+    proc appendRecentUserScripts {filename} {
+        variable recentUserScripts
+        set index [lsearch -exact $recentUserScripts $filename]
         if {$index == -1} {
-            lappend recentUserScripts $s
+            lappend recentUserScripts $filename
         } else {
             set recentUserScripts [lreplace $recentUserScripts $index $index]
-            lappend recentUserScripts $s
+            lappend recentUserScripts $filename
         }
         if {[llength $recentUserScripts] > 4} {
             set recentUserScripts [lrange $recentUserScripts end-3 end]
         }
-        updateRecentUserScriptsMenu
     }
 
     # set background script and add to recent background scripts
     proc setBgScript {s} {
         variable bgScript
-        variable recentBgScripts
         set bgScript $s
-        set index [lsearch -exact $recentBgScripts $s]
+        appendRecentBgScripts $s
+        updateRecentBgScriptsMenu
+    }
+
+    # append filename to recent background scripts, with a maximum length of 
+    # four
+    proc appendRecentBgScripts {filename} {
+        variable recentBgScripts
+        set index [lsearch -exact $recentBgScripts $filename]
         if {$index == -1} {
-            lappend recentBgScripts $s
+            lappend recentBgScripts $filename
         } else {
             set recentBgScripts [lreplace $recentBgScripts $index $index]
-            lappend recentBgScripts $s
+            lappend recentBgScripts $filename
         }
         if {[llength $recentBgScripts] > 4} {
             set recentBgScripts [lrange $recentBgScripts end-3 end]
         }
-        updateRecentBgScriptsMenu
     }
 
     # open pipe to app interface and source any user file 
@@ -832,7 +843,7 @@ namespace eval iatclsh {
         if {$f == ""} {
             return
         }
-        setUserScript $f
+        setUserScript [file normalize $f]
         loadUserScript
     }
 
@@ -842,7 +853,7 @@ namespace eval iatclsh {
         if {$f == ""} {
             return
         }
-        setBgScript $f
+        setBgScript [file normalize $f]
         loadBgScriptRequest
     }
 
@@ -1075,6 +1086,9 @@ namespace eval iatclsh {
         
         buildGui
             
+        # load history from previously saved file
+        catch iatclsh::loadHistory
+
         if {[parseCmdLineArgs] == 0} {
             tk_messageBox -type ok -icon error -title "Error" \
                     -message "Error parsing command line parameters"
@@ -1085,9 +1099,6 @@ namespace eval iatclsh {
             grid .sb
         }
         
-        # load history from previously saved file
-        catch iatclsh::loadHistory
-
         # show gui before start up
         update 
         
