@@ -56,12 +56,12 @@ namespace eval iatclsh {
     variable bgCmdComplete 0
     variable busy 0
 
-    # for backgound script: reloadUserScriptScheduled indicates that the user
-    # script is scheduled for reload; reloadBgScriptScheduled indicates that
+    # for backgound script: retartAppIfScheduled indicates that app interface
+    # is scheduled for reload; reloadBgScriptScheduled indicates that
     # the background script has been scheduled for reload; bgScriptOk indicates 
     # that a background script has been loaded ok; bgInterp is the interpreter 
     # used for running background scripts
-    variable reloadUserScriptScheduled 0 
+    variable restartAppIfScheduled 0 
     variable reloadBgScriptScheduled 0
     variable bgScriptOk 1 
     variable bgInterp ""
@@ -173,47 +173,26 @@ namespace eval iatclsh {
     }
 
     # open pipe to app interface and source any user file 
-    proc startUp {} {
+    proc startAppIf {} {
         variable fd 
         variable userScript
         variable appIf
+        variable busy
+        variable lastCmdBg
         set exe [info nameofexecutable]
         set fd [open "|$exe $appIf" r+]
         chan configure $fd -blocking 0
+        chan event $fd readable ::iatclsh::readPipe
         if {$userScript != ""} {
             .cmdEntry configure -state disabled
-            sourceUserFile
-            .cmdEntry configure -state normal
-        }
-        chan event $fd readable ::iatclsh::readPipe
-    }
-
-    # source user file. Writes to log any resulting messages
-    proc sourceUserFile {} {
-        variable userScript
-        variable fd 
-        puts $fd "cd [file dirname $userScript]"
-        puts $fd "source [file tail $userScript]"
-        puts $fd "\x03"; flush $fd
-        while {1} {
-            set l [read $fd]
-            if {$l == ""} {
-                after 50
-                continue
-            } 
-            if {[regexp {^(.*)\x03\n$} $l match l]} {
-                if {$l != ""} {
-                    appendLog "$l" response
-                    update idletasks
-                }
-                break
-            } else {
-                appendLog "$l" response
-                update idletasks
-            }
+            set lastCmdBg 0
+            set busy 1
+            puts $fd "cd [file dirname $userScript]"
+            puts $fd "source [file tail $userScript]"
+            puts $fd "\x03"; flush $fd
         }
     }
-    
+   
     # event handler for reading pipe
     proc readPipe {} {
         variable fd
@@ -758,11 +737,11 @@ namespace eval iatclsh {
     proc updateGuiState {} {
         variable userScript
         variable bgScript
-        variable reloadUserScriptScheduled 
+        variable restartAppIfScheduled 
         variable reloadBgScriptScheduled 
 
         # load user script popup menu state
-        if {$reloadUserScriptScheduled} {
+        if {$restartAppIfScheduled} {
             .puMenu entryconfigure "Load User Script" -state disabled
         } else {
             .puMenu entryconfigure "Load User Script" -state normal
@@ -844,7 +823,7 @@ namespace eval iatclsh {
             return
         }
         setUserScript [file normalize $f]
-        loadUserScript
+        restartAppIfRequest
     }
 
     # present a file open dialog and load background script if one is chosen
@@ -860,7 +839,7 @@ namespace eval iatclsh {
     # recent user script file selected from recent user files menu
     proc recentUserScriptUIEvent {filename} {
         setUserScript $filename
-        loadUserScript
+        restartAppIfRequest
     }
 
     # recent background script file selected from recent background files menu
@@ -871,13 +850,13 @@ namespace eval iatclsh {
 
     # load user script, either immediately if a background command isn't
     # running, otherwise schedule reload for when background command completes
-    proc loadUserScript {} {
-        variable reloadUserScriptScheduled 
+    proc restartAppIfRequest {} {
+        variable restartAppIfScheduled 
         variable inRunCycle
         if {$inRunCycle == 0} {
-            reloadUserScript
+            restartAppIf
         } else {
-            set reloadUserScriptScheduled 1
+            set restartAppIfScheduled 1
             updateGuiState
         }
     }
@@ -898,13 +877,24 @@ namespace eval iatclsh {
 
     # reset tclsh
     proc resetTclshUIEvent {} {
+        variable fd
+        variable busy
+        variable interactiveCmd
+        variable restartAppIfScheduled 
         variable userScript
         variable bgRxBuf
         variable bgCmdComplete
+        variable cmdLine
+        close $fd
+        set busy 0
+        set interactiveCmd ""
+        set restartAppIfScheduled 0
         set userScript ""
         set bgRxBuf "\n"
         set bgCmdComplete 1
-        reloadUserScript
+        set cmdLine ""
+        .cmdEntry configure -state normal
+        startAppIf
     }
 
     # unload background script 
@@ -925,32 +915,22 @@ namespace eval iatclsh {
         updateGuiState 
     }
 
-    # reload user script
-    proc reloadUserScript {} {
-        variable reloadUserScriptScheduled 
-        set reloadUserScriptScheduled 0
-        shutdownIaScriptState 
-        startUp 
-        updateGuiState
+    # clear any pending interactive command and restart app i/f
+    proc restartAppIf {} {
+        variable fd
+        variable busy
+        variable interactiveCmd
+        variable restartAppIfScheduled 
+        variable cmdLine
+        close $fd
+        set busy 0
+        set interactiveCmd ""
+        set restartAppIfScheduled 0
+        set cmdLine ""
+        .cmdEntry configure -state normal
+        startAppIf 
     }
    
-    # clear any pending interactive and user command, ready for loading of 
-    # user script
-    proc shutdownIaScriptState {} {
-        variable fd
-        variable bgCmd
-        variable interactiveCmd
-        variable cmdLine
-        variable busy
-        variable bgRxBuf 
-        variable bgCmdComplete
-        close $fd
-        set interactiveCmd ""
-        set cmdLine ""
-        set busy 0
-        .cmdEntry config -state normal
-    }
- 
     # reload background script
     proc reloadBgScript {} {
         variable reloadBgScriptScheduled 
@@ -1053,7 +1033,7 @@ namespace eval iatclsh {
         variable stopRun 
         variable inRunCycle
         variable running
-        variable reloadUserScriptScheduled
+        variable restartAppIfScheduled
         variable reloadBgScriptScheduled
         variable bgInterp
         set running 1
@@ -1072,8 +1052,8 @@ namespace eval iatclsh {
             set running 0
         }
         set inRunCycle 0
-        if {$reloadUserScriptScheduled} {
-            reloadUserScript
+        if {$restartAppIfScheduled} {
+            restartAppIf
         }   
         if {$reloadBgScriptScheduled} {
             reloadBgScript
@@ -1105,7 +1085,7 @@ namespace eval iatclsh {
         updateGuiState
         
         # open app interface and source any user file
-        startUp 
+        startAppIf 
 
         # load and run background script
         if {$bgScript != "" && [loadBgScript]} {
