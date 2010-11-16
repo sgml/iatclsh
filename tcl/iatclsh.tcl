@@ -184,13 +184,13 @@ namespace eval iatclsh {
         chan configure $fd -blocking 0
         chan event $fd readable ::iatclsh::readPipe
         if {$userScript != ""} {
-            .cmdEntry configure -state disabled
             set lastCmdBg 0
             set busy 1
-            puts $fd "cd [file dirname $userScript]"
+            .cmdEntry configure -background grey
+            puts -nonewline $fd "cd [file dirname $userScript]; "
             puts $fd "source [file tail $userScript]"
-            puts $fd "\x03"; flush $fd
-        }
+            flush $fd
+        } 
     }
    
     # event handler for reading pipe
@@ -244,9 +244,8 @@ namespace eval iatclsh {
                 sendACmd   
             }
         } else {
-            set cmdLine ""
+            .cmdEntry configure -background white
             set interactiveCmd ""
-            .cmdEntry config -state normal
             if {$bgCmd != ""} {
                 sendACmd   
             }
@@ -280,14 +279,17 @@ namespace eval iatclsh {
     }
     
     # post interactive command for sending
-    proc postIaCmd {cmd} {
+    proc postIaCmd {} {
         variable interactiveCmd
-        set cmd [string trim $cmd]
+        variable cmdLine
+        set cmd [string trim $cmdLine]
+        set cmdLine ""
         if {$cmd == ""} {
             appendLog "\n" command
         } else {
-            .cmdEntry config -state disabled
             set interactiveCmd $cmd
+            appendLog "$cmd\n" command 
+            .cmdEntry configure -background grey
             sendACmd 
         }
     }
@@ -308,24 +310,16 @@ namespace eval iatclsh {
         variable bgCmd
         variable lastCmdBg
         variable busy
-        if {$busy} {
+        if {$busy && $lastCmdBg} {
             return
         }
-        if {$interactiveCmd != "" && $bgCmd == ""} {
+        if {$interactiveCmd != ""} {
             set lastCmdBg 0
             sendCmd $interactiveCmd
-        } elseif {$interactiveCmd == "" && $bgCmd != ""} {
+        } else {
             set lastCmdBg 1
             sendCmd $bgCmd
-        } else {
-            if {$lastCmdBg} {
-                set lastCmdBg 0  
-                sendCmd $interactiveCmd
-            } else {
-                set lastCmdBg 1
-                sendCmd $bgCmd    
-            }
-        }
+        } 
     }
     
     # send supplied command
@@ -336,9 +330,7 @@ namespace eval iatclsh {
         variable fd 
         variable lastCmdBg 
         variable busy
-        set busy 1
-        if {!$lastCmdBg} {
-            appendLog "$cmdLine\n" command 
+        if {!$lastCmdBg && $busy == 0} {
             if {$cmdLine != [lindex $cmdHistory end]} {
                 lappend cmdHistory $cmdLine
             }
@@ -347,8 +339,9 @@ namespace eval iatclsh {
             }
             set historyIndex [llength $cmdHistory]
         }
+        set busy 1
         puts $fd "$cmdLine"
-        puts $fd "\x03"; flush $fd
+        flush $fd
     }
     
     # sets command line entry widget, based on current historyIndex and dir.
@@ -707,7 +700,7 @@ namespace eval iatclsh {
         .log tag configure error -foreground red
 
         # bindings
-        bind .cmdEntry <Return> {::iatclsh::postIaCmd $iatclsh::cmdLine}
+        bind .cmdEntry <Return> {::iatclsh::postIaCmd}
         bind .cmdEntry <Up> {::iatclsh::setCmdLine up}
         bind .cmdEntry <Down> {::iatclsh::setCmdLine dn}
         bind .cmdEntry <braceleft> {event generate .cmdEntry <braceright>; \
@@ -893,7 +886,6 @@ namespace eval iatclsh {
         set bgRxBuf "\n"
         set bgCmdComplete 1
         set cmdLine ""
-        .cmdEntry configure -state normal
         startAppIf
     }
 
@@ -927,7 +919,6 @@ namespace eval iatclsh {
         set interactiveCmd ""
         set restartAppIfScheduled 0
         set cmdLine ""
-        .cmdEntry configure -state normal
         startAppIf 
     }
    

@@ -15,15 +15,12 @@ namespace eval iatclsh {
         if {[eof stdin]} {
             exit 0
         }
-        if {$cmd == "\x03"} {
-            puts "\x03"; flush stdout
-        } else {
-            if {[catch {set ret [namespace eval :: $::iatclsh::cmd]} err]} {
-                puts $err; flush stdout
-            } elseif {$ret != ""} {    
-                puts $ret; flush stdout
-            }
+        if {[catch {set ret [namespace eval :: $::iatclsh::cmd]} err]} {
+            puts $err; flush stdout
+        } elseif {$ret != ""} {    
+            puts $ret; flush stdout
         }
+        puts "\x03"; flush stdout
     }
 }
 
