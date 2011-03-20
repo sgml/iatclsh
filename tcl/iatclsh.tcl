@@ -81,8 +81,10 @@ namespace eval iatclsh {
     variable busyCount 0
     variable busyTime [clock milliseconds]
     
-    # controls whether scrollbar is visable
+    # controls whether scrollbar and combobox are visable
     variable showScrollBar 0
+    variable showComboBox 0
+    variable COMBOBOX_MAX 100
 
     # parse command line arguments. Returns 1 if command line parsed 
     # successfully, otherwise 0
@@ -90,12 +92,16 @@ namespace eval iatclsh {
         global argc argv 
         variable userScript  
         variable showScrollBar
+        variable showComboBox
         set i 0
         while {$i < $argc} {
             set t [lindex $argv $i]
             if {[regexp {^-} $t]} {
                 if {$t == "-sc"} {
                     set showScrollBar 1
+                    incr i
+                } elseif {$t == "-cb"} {
+                    set showComboBox 1
                     incr i
                 } elseif {$t == "-bg"} {
                     incr i
@@ -270,6 +276,7 @@ namespace eval iatclsh {
         variable cmdHistory 
         variable historyIndex 
         variable HISTORY_MAX_CMDS          
+        variable showComboBox
         variable fd 
         set cmd [string trim $cmdLine]
         set cmdLine ""
@@ -281,6 +288,9 @@ namespace eval iatclsh {
                     set cmdHistory [lreplace $cmdHistory 0 0]
                 }
                 set historyIndex [llength $cmdHistory]
+                if {$showComboBox} {
+                    updateComboBox
+                }
             }
         }
         puts $fd "$cmd"
@@ -358,8 +368,6 @@ namespace eval iatclsh {
             }
         }
         set historyIndex [llength $cmdHistory]
-        updateRecentUserScriptsMenu
-        updateRecentBgScriptsMenu
         close $f
     }
 
@@ -614,13 +622,19 @@ namespace eval iatclsh {
 
     # gui
     proc buildGui {} {
+        variable showComboBox
+
         # components
         text .log -background black -yscrollcommand ".sb set"
-        scrollbar .sb -command ".log yview"
-        entry .cmdEntry -highlightthickness 0 -textvariable iatclsh::cmdLine
-        frame .status
-        label .status.left -justify left -textvariable iatclsh::statusLeft
-        label .status.right -justify right \
+        ttk::scrollbar .sb -command ".log yview"
+        if {$showComboBox} {
+            ttk::combobox .cmdEntry -textvariable iatclsh::cmdLine
+        } else {
+            ttk::entry .cmdEntry -textvariable iatclsh::cmdLine
+        }
+        ttk::frame .status
+        ttk::label .status.left -justify left -textvariable iatclsh::statusLeft
+        ttk::label .status.right -justify right \
                 -textvariable iatclsh::statusRight
         option add *Menu.tearOff 0
         menu .mbar
@@ -655,8 +669,10 @@ namespace eval iatclsh {
 
         # bindings
         bind .cmdEntry <Return> {::iatclsh::postIaCmd}
-        bind .cmdEntry <Up> {::iatclsh::setCmdLine up}
-        bind .cmdEntry <Down> {::iatclsh::setCmdLine dn}
+        if {!$showComboBox} {
+            bind .cmdEntry <Up> {::iatclsh::setCmdLine up}
+            bind .cmdEntry <Down> {::iatclsh::setCmdLine dn}
+        }
         bind .cmdEntry <braceleft> {event generate .cmdEntry <braceright>; \
                 event generate .cmdEntry <Left>}
         bind .cmdEntry <bracketleft> {event generate .cmdEntry <bracketright>; \
@@ -739,6 +755,19 @@ namespace eval iatclsh {
         } else {
             wm title . "iatclsh - [file tail $userScript]"    
         }
+    }
+
+    # update combobox from history 
+    proc updateComboBox {} {
+        variable cmdHistory 
+        variable COMBOBOX_MAX          
+        set i [expr {[llength $cmdHistory] - $COMBOBOX_MAX - 1}]
+        set cmds [lrange $cmdHistory $i end]
+        set revCmds ""
+        for {set i [expr {[llength $cmds] - 1}]} {$i >= 0} {incr i -1} {
+            lappend revCmds [lindex $cmds $i]
+        }
+        .cmdEntry configure -values $revCmds
     }
 
     # update entries for recent user scripts menu
@@ -997,19 +1026,21 @@ namespace eval iatclsh {
 
     proc main {} {
         variable showScrollBar
+        variable showComboBox
         variable bgScript
         
-        buildGui
-            
-        # load history from previously saved file
+        set parseOk [parseCmdLineArgs]
         catch iatclsh::loadHistory
 
-        if {[parseCmdLineArgs] == 0} {
+        buildGui
+        if {$parseOk == 0} {
             tk_messageBox -type ok -icon error -title "Error" \
                     -message "Error parsing command line parameters"
             exit 1
         }
-        
+        if {$showComboBox} {
+            updateComboBox
+        }
         if {$showScrollBar} {
             grid .sb
         }
@@ -1017,6 +1048,8 @@ namespace eval iatclsh {
         # show gui before start up
         update 
         
+        updateRecentUserScriptsMenu
+        updateRecentBgScriptsMenu
         updateGuiState
         
         # open app interface and source any user file
