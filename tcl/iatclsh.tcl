@@ -40,21 +40,15 @@ namespace eval iatclsh {
     variable currentEditCmd ""
 
     # for running interactive/background commands: cmdLine is the variable 
-    # associated with the command line entry widget; interactiveCmd is a buffer
-    # for storing an interactive command entered in gui; bgCmd is a buffer for
-    # storing a background command run from a background script; bgRxBuf is a 
-    # buffer for holding the result of running a background command; lastCmdBg
-    # indicates that the last command to run was a background command;
-    # bgCmdComplete indicates that a background command has run and completed;
-    # busy indicates that a command is running, either interactive or 
-    # background
+    # associated with the command line entry widget; bgRxBuf is a buffer for 
+    # holding the result of running a background command; bgCmdComplete 
+    # indicates that a background command has run and completed; inBgCmd
+    # indicates background command is executing.
     variable cmdLine ""
-    variable interactiveCmd ""
-    variable bgCmd ""
+    variable bgCmdPending 0
     variable bgRxBuf ""    
-    variable lastCmdBg 0
     variable bgCmdComplete 0
-    variable busy 0
+    variable inBgCmd 0
 
     # for backgound script: retartAppIfScheduled indicates that app interface
     # is scheduled for reload; reloadBgScriptScheduled indicates that
@@ -177,16 +171,11 @@ namespace eval iatclsh {
         variable fd 
         variable userScript
         variable appIf
-        variable busy
-        variable lastCmdBg
         set exe [info nameofexecutable]
         set fd [open "|$exe $appIf" r+]
         chan configure $fd -blocking 0
         chan event $fd readable ::iatclsh::readPipe
         if {$userScript != ""} {
-            set lastCmdBg 0
-            set busy 1
-            .cmdEntry configure -background grey
             puts -nonewline $fd "cd [file dirname $userScript]; "
             puts $fd "source [file tail $userScript]"
             flush $fd
@@ -196,58 +185,55 @@ namespace eval iatclsh {
     # event handler for reading pipe
     proc readPipe {} {
         variable fd
+        variable inBgCmd
+        variable bgCmdComplete
+        variable bgRxBuf
         set r [read $fd]
         if {[eof $fd]} {
             closeApp
         }
-        if {[regexp {^(.*)\x03\n$} $r match response]} {
-            if {$response != ""} {
-                processRxMsg $response
-            }
-            completedCmd
-        } else {
-            if {$r != ""} {
-                processRxMsg $r
-            }
-        }
-    }
-    
-    # process received messages
-    proc processRxMsg {s} {
-        variable lastCmdBg
-        variable bgRxBuf
-        if {!$lastCmdBg} {
-            if {$s == "\x11\n"} {
-                clearLog
+        while {$r != ""} {
+            if {$inBgCmd} {
+                set i [string first "\x03" $r]
+                if {$i == -1} {
+                    append bgRxBuf $r
+                    break
+                } else {
+                    append bgRxBuf [string range $r 0 $i-1]
+                    set bgCmdComplete 1
+                    set inBgCmd 0
+                    set r [string range $r $i+1 end]
+                }
             } else {
-                appendLog "$s" response
+                set i [string first "\x02" $r]
+                if {$i == -1} {
+                    processRxMsg $r 
+                    update idletasks
+                    break
+                } else {
+                    if {$i > 0} {
+                        processRxMsg [string range $r 0 $i-1] 
+                        update idletasks
+                        set r [string range $r $i+1 end]
+                    } else {
+                        set r [string range $r 1 end]
+                    }
+                    set inBgCmd 1
+                }
             }
-            update idletasks
-        } else {
-            set bgRxBuf $bgRxBuf$s
         }
     }
-    
-    # command completed
-    proc completedCmd {} {
-        variable cmdLine 
-        variable interactiveCmd
-        variable bgCmd
-        variable lastCmdBg
-        variable busy
-        variable bgCmdComplete
-        set busy 0
-        if {$lastCmdBg} {
-            set bgCmd ""
-            set bgCmdComplete 1
-            if {$interactiveCmd != ""} {
-                sendACmd   
-            }
-        } else {
-            .cmdEntry configure -background white
-            set interactiveCmd ""
-            if {$bgCmd != ""} {
-                sendACmd   
+   
+    # process received interactive messages
+    proc processRxMsg {str} {
+        while {$str != ""} {
+            set i [string first "\x11" $str]
+            if {$i == -1} {
+                appendLog $str response
+                break
+            } else {
+                clearLog
+                set str [string range $str $i+1 end]
             }
         }
     }
@@ -278,70 +264,38 @@ namespace eval iatclsh {
         .log configure -state disabled
     }
     
-    # post interactive command for sending
+    # post interactive command 
     proc postIaCmd {} {
-        variable interactiveCmd
         variable cmdLine
-        set cmd [string trim $cmdLine]
-        set cmdLine ""
-        if {$cmd == ""} {
-            appendLog "\n" command
-        } else {
-            set interactiveCmd $cmd
-            appendLog "$cmd\n" command 
-            .cmdEntry configure -background grey
-            sendACmd 
-        }
-    }
-    
-    # post background command
-    proc post {args} {
-        variable bgCmd
-        variable bgCmdComplete
-        set bgCmdComplete 0
-        set bgCmd $args
-        sendACmd   
-    }
-    
-    # send a command, based on what commands are pending, interactive or 
-    # background, and what type of command was sent previously
-    proc sendACmd {} {
-        variable interactiveCmd
-        variable bgCmd
-        variable lastCmdBg
-        variable busy
-        if {$busy && $lastCmdBg} {
-            return
-        }
-        if {$interactiveCmd != ""} {
-            set lastCmdBg 0
-            sendCmd $interactiveCmd
-        } else {
-            set lastCmdBg 1
-            sendCmd $bgCmd
-        } 
-    }
-    
-    # send supplied command
-    proc sendCmd {cmdLine} {
         variable cmdHistory 
         variable historyIndex 
         variable HISTORY_MAX_CMDS          
         variable fd 
-        variable lastCmdBg 
-        variable busy
-        if {!$lastCmdBg && $busy == 0} {
-            if {$cmdLine != [lindex $cmdHistory end]} {
-                lappend cmdHistory $cmdLine
+        set cmd [string trim $cmdLine]
+        set cmdLine ""
+        if {$cmd != ""} {
+            appendLog "$cmd\n" command
+            if {$cmd != [lindex $cmdHistory end]} {
+                lappend cmdHistory $cmd
+                if {[llength $cmdHistory] > $HISTORY_MAX_CMDS} {
+                    set cmdHistory [lreplace $cmdHistory 0 0]
+                }
+                set historyIndex [llength $cmdHistory]
             }
-            if {[llength $cmdHistory] > $HISTORY_MAX_CMDS} {
-                set cmdHistory [lreplace $cmdHistory 0 0]
-            }
-            set historyIndex [llength $cmdHistory]
         }
-        set busy 1
-        puts $fd "$cmdLine"
+        puts $fd "$cmd"
         flush $fd
+    }
+
+    # post background command
+    proc post {args} {
+        variable bgCmdPending
+        variable fd
+        if {!$bgCmdPending} {
+            set bgRxBuf ""
+            set bgCmdPending 1
+            puts $fd "\x02$args"; flush $fd
+        }
     }
     
     # sets command line entry widget, based on current historyIndex and dir.
@@ -432,19 +386,19 @@ namespace eval iatclsh {
 
     # returns 1 if background command pending, otherwise 0
     proc pending {} {
-        variable bgCmd
-        if {$bgCmd == ""} {
-            return 0
-        }
-        return 1
+        variable bgCmdPending
+        return $bgCmdPending
     }
     
     # sends command and returns all response from background command
     proc cmd {args} {
         variable bgRxBuf 
-        if {![pending]} {
-            post {*}$args
+        variable bgCmdPending
+        variable fd
+        if {!$bgCmdPending} {
             set bgRxBuf ""
+            puts $fd "\x02$args"
+            flush $fd
             return [getAll]
         }
         return ""
@@ -871,16 +825,12 @@ namespace eval iatclsh {
     # reset tclsh
     proc resetTclshUIEvent {} {
         variable fd
-        variable busy
-        variable interactiveCmd
         variable restartAppIfScheduled 
         variable userScript
         variable bgRxBuf
         variable bgCmdComplete
         variable cmdLine
         close $fd
-        set busy 0
-        set interactiveCmd ""
         set restartAppIfScheduled 0
         set userScript ""
         set bgRxBuf "\n"
@@ -892,14 +842,12 @@ namespace eval iatclsh {
     # unload background script 
     proc unloadBgScriptUIEvent {} {
         variable bgScript 
-        variable bgCmd
         variable reloadBgScriptScheduled 
         variable running
         variable inRunCycle
         variable stopRun
         shutdownBgScriptUi
         set bgScript ""
-        set bgCmd ""
         set reloadBgScriptScheduled 0
         set running 0
         set inRunCycle 0
@@ -910,13 +858,9 @@ namespace eval iatclsh {
     # clear any pending interactive command and restart app i/f
     proc restartAppIf {} {
         variable fd
-        variable busy
-        variable interactiveCmd
         variable restartAppIfScheduled 
         variable cmdLine
         close $fd
-        set busy 0
-        set interactiveCmd ""
         set restartAppIfScheduled 0
         set cmdLine ""
         startAppIf 

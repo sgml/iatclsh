@@ -3,24 +3,34 @@
 #
 
 proc clear {} {
-    return "\x11"    
+    puts -nonewline "\x11"
 }
-     
+
 namespace eval iatclsh {
     variable cmd
     variable ret
     variable err
+    variable bgCmd
     while {1} {
         set cmd [gets stdin]
         if {[eof stdin]} {
             exit 0
         }
-        if {[catch {set ret [namespace eval :: $::iatclsh::cmd]} err]} {
-            puts $err; flush stdout
-        } elseif {$ret != ""} {    
-            puts $ret; flush stdout
+        set bgCmd 0
+        if {[string first "\x02" $cmd] == 0} {
+            set cmd [string range $cmd 1 end]
+            puts -nonewline "\x02"
+            set bgCmd 1
         }
-        puts "\x03"; flush stdout
+        if {[catch {set ret [namespace eval :: $::iatclsh::cmd]} err]} {
+            set ret $err
+        } 
+        if {$bgCmd} {
+            puts -nonewline "$ret\x03" 
+        } elseif {$ret != ""} {    
+            puts $ret 
+        }
+        flush stdout
     }
 }
 
