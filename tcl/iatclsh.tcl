@@ -833,8 +833,8 @@ namespace eval iatclsh {
             restartAppIf
         } else {
             set restartAppIfScheduled 1
-            updateGuiState
         }
+        updateGuiState
     }
 
     # load background script, either immediately if a background command
