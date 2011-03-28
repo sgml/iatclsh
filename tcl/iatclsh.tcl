@@ -287,11 +287,11 @@ namespace eval iatclsh {
                 if {[llength $cmdHistory] > $HISTORY_MAX_CMDS} {
                     set cmdHistory [lreplace $cmdHistory 0 0]
                 }
-                set historyIndex [llength $cmdHistory]
                 if {$showComboBox} {
                     updateComboBox
                 }
             }
+            set historyIndex [llength $cmdHistory]
         }
         puts $fd "$cmd"
         flush $fd
