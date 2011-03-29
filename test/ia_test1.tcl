@@ -46,6 +46,14 @@ proc temp {sensor} {
     puts [format "%.1f" [expr {$base + rand() * 0.1}]]
 }
 
+proc getAString {} {
+    return "a \nstring"
+}
+
+proc getBString {} {
+    return "b \nstring\n"
+}
+
 help
 foreach i {1 2 3 4 5} {
     puts -nonewline "$i "; flush stdout

@@ -431,7 +431,7 @@ namespace eval iatclsh {
         while {1} {
             vwait ::iatclsh::bgCmdComplete
             if {$bgCmdComplete} {
-                regexp {(.*)\n$} $bgRxBuf match line
+                regexp {(.*?)(\n)?$} $bgRxBuf match line
                 set bgRxBuf ""
                 return $line
             }
