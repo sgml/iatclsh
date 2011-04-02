@@ -4,6 +4,7 @@
 # iatclsh.tcl
 #
 package require Tk
+source [file dirname [file normalize [info script]]]/PrefsDlg.tcl
 
 namespace eval iatclsh {    
     variable exports [list \
@@ -22,19 +23,16 @@ namespace eval iatclsh {
     variable recentUserScripts [list]
     variable recentBgScripts [list]
 
-    # for user script: fd is the file descriptor for the pipe to the tclsh 
-    # running the user script; appIf is the path to the app_if.tcl script
+    # fd is the file descriptor for the pipe to the tclsh 
     variable fd ""
+
+    # appIf is the path to the app_if.tcl script
     variable appIf [file dirname [file normalize [info script]]]/app_if.tcl
 
-    # for log and command history: LOG_MAX_LINES is the maximum number lines to
-    # store in the log window;  HISTORY_MAX_COMMANDS is the maximum number of
-    # interactive commands to store; cmdHistory is a list where the interactive
+    # for log and command history: cmdHistory is a list where the interactive
     # commands are stored; historyIndex is an index into cmdHistory; 
     # currentEditCmd is a store for an interactive command currently being
     # typed
-    variable LOG_MAX_LINES 10000
-    variable HISTORY_MAX_CMDS 100
     variable cmdHistory [list]
     variable historyIndex 0
     variable currentEditCmd ""
@@ -81,29 +79,20 @@ namespace eval iatclsh {
     variable busyCount 0
     variable busyTime [clock milliseconds]
     
-    # controls whether scrollbar and combobox are visable
-    variable showScrollBar 0
-    variable showComboBox 0
-    variable COMBOBOX_MAX 100
+    # user preferences
+    variable prefs [dict create scrollLines 5000 historySize 100 \
+            showScrollbar 0 showCombobox 0 changeDir 1]
 
     # parse command line arguments. Returns 1 if command line parsed 
     # successfully, otherwise 0
     proc parseCmdLineArgs {} {
         global argc argv 
         variable userScript  
-        variable showScrollBar
-        variable showComboBox
         set i 0
         while {$i < $argc} {
             set t [lindex $argv $i]
             if {[regexp {^-} $t]} {
-                if {$t == "-sc"} {
-                    set showScrollBar 1
-                    incr i
-                } elseif {$t == "-cb"} {
-                    set showComboBox 1
-                    incr i
-                } elseif {$t == "-bg"} {
+                if {$t == "-bg"} {
                     incr i
                     if {$i >= $argc} {
                         return 0
@@ -177,13 +166,18 @@ namespace eval iatclsh {
         variable fd 
         variable userScript
         variable appIf
+        variable prefs
         set exe [info nameofexecutable]
         set fd [open "|$exe $appIf" r+]
         chan configure $fd -blocking 0
         chan event $fd readable ::iatclsh::readPipe
         if {$userScript != ""} {
-            puts -nonewline $fd "cd [file dirname $userScript]; "
-            puts $fd "source [file tail $userScript]"
+            if {[dict get $prefs changeDir]} {
+                puts -nonewline $fd "cd [file dirname $userScript]; "
+                puts $fd "source [file tail $userScript]"
+            } else {
+                puts $fd "source $userScript"
+            }
             flush $fd
         } 
     }
@@ -253,11 +247,12 @@ namespace eval iatclsh {
         .log see end
     }
     
-    # trim log to a maximum of LOG_MAX_LINES
+    # trim log to a maximum of lines set in user preferences
     proc trimLog {} {
-        variable LOG_MAX_LINES
+        variable prefs
+        set max [dict get $prefs scrollLines]
         set lines [.log count -lines 0.0 end]
-        set deleteTo [expr {$lines - $LOG_MAX_LINES + 1}]
+        set deleteTo [expr {$lines - $max + 1}]
         if {$deleteTo > 0} {
             .log delete 1.0 $deleteTo.0    
         }
@@ -275,8 +270,7 @@ namespace eval iatclsh {
         variable cmdLine
         variable cmdHistory 
         variable historyIndex 
-        variable HISTORY_MAX_CMDS          
-        variable showComboBox
+        variable prefs         
         variable fd 
         set cmd [string trim $cmdLine]
         set cmdLine ""
@@ -284,12 +278,10 @@ namespace eval iatclsh {
             appendLog "$cmd\n" command
             if {$cmd != [lindex $cmdHistory end]} {
                 lappend cmdHistory $cmd
-                if {[llength $cmdHistory] > $HISTORY_MAX_CMDS} {
+                if {[llength $cmdHistory] > [dict get $prefs historySize]} {
                     set cmdHistory [lreplace $cmdHistory 0 0]
                 }
-                if {$showComboBox} {
-                    updateComboBox
-                }
+                updateComboBox
             }
             set historyIndex [llength $cmdHistory]
         }
@@ -351,6 +343,7 @@ namespace eval iatclsh {
         variable recentUserScripts
         variable recentBgScripts
         variable historyIndex
+        variable prefs
         set f [open "~/.iatclsh" r]
         while {1} {
             gets $f s
@@ -366,6 +359,12 @@ namespace eval iatclsh {
             if {[string first "rbg:" $s] == 0} {
                 lappend recentBgScripts [string range $s 5 end]
             }
+            if {[string first "pref:" $s] == 0} {
+                set l [string range $s 6 end]
+                set key [lindex $l 0]
+                set value [lindex $l 1]
+                dict set prefs $key $value
+            }
         }
         set historyIndex [llength $cmdHistory]
         close $f
@@ -376,6 +375,7 @@ namespace eval iatclsh {
         variable cmdHistory
         variable recentUserScripts
         variable recentBgScripts
+        variable prefs
         if {[lindex $cmdHistory end] == "exit"} {
             set cmdHistory [lreplace $cmdHistory end end]   
         }
@@ -388,6 +388,9 @@ namespace eval iatclsh {
         }
         foreach s $recentBgScripts {
             puts $f "rbg: $s"   
+        }
+        foreach k [dict keys $prefs] {
+            puts $f "pref: [list $k [dict get $prefs $k]]"
         }
         close $f
     }
@@ -622,16 +625,12 @@ namespace eval iatclsh {
 
     # gui
     proc buildGui {} {
-        variable showComboBox
 
         # components
         text .log -background black -yscrollcommand ".sb set"
         ttk::scrollbar .sb -command ".log yview"
-        if {$showComboBox} {
-            ttk::combobox .cmdEntry -textvariable iatclsh::cmdLine
-        } else {
-            ttk::entry .cmdEntry -textvariable iatclsh::cmdLine
-        }
+        ttk::entry .cmdEntry -textvariable iatclsh::cmdLine
+        ttk::combobox .cmdCombobox -textvariable iatclsh::cmdLine
         ttk::frame .status
         ttk::label .status.left -justify left -textvariable iatclsh::statusLeft
         ttk::label .status.right -justify right \
@@ -644,9 +643,9 @@ namespace eval iatclsh {
         menu .puMenu.recentBgScriptsMenu
 
         # pop up menu
-        .puMenu add command -label "Load User Script" \
+        .puMenu add command -label "Load User Script..." \
                 -command iatclsh::loadUserScriptUIEvent
-        .puMenu add command -label "Load Background Script" \
+        .puMenu add command -label "Load Background Script..." \
                 -command iatclsh::loadBgScriptUIEvent
         .puMenu add separator
         .puMenu add cascade -label "Recent User Scripts" \
@@ -660,6 +659,9 @@ namespace eval iatclsh {
                 -command iatclsh::unloadBgScriptUIEvent
         .puMenu add separator
         .puMenu add command -label "Clear" -command ::iatclsh::clearLog
+        .puMenu add separator
+        .puMenu add command -label "Preferences..." \
+                -command ::iatclsh::setPreferences
 
         # configure log
         .log configure -state disabled 
@@ -669,21 +671,21 @@ namespace eval iatclsh {
 
         # bindings
         bind .cmdEntry <Return> {::iatclsh::postIaCmd}
-        if {!$showComboBox} {
-            bind .cmdEntry <Up> {::iatclsh::setCmdLine up}
-            bind .cmdEntry <Down> {::iatclsh::setCmdLine dn}
-        }
+        bind .cmdEntry <Up> {::iatclsh::setCmdLine up}
+        bind .cmdEntry <Down> {::iatclsh::setCmdLine dn}
         bind .cmdEntry <braceleft> {event generate .cmdEntry <braceright>; \
                 event generate .cmdEntry <Left>}
         bind .cmdEntry <bracketleft> {event generate .cmdEntry <bracketright>; \
                 event generate .cmdEntry <Left>}
         bind .log <ButtonPress-3> {tk_popup .puMenu %X %Y}
+        bind .cmdCombobox <Return> {::iatclsh::postIaCmd}
 
         # layout 
         grid .log -row 0 -column 0 -sticky nsew
         grid .sb -row 0 -column 1 -sticky ns
         grid .cmdEntry -row 1 -column 0 -columnspan 2 -sticky ew 
-        grid .status -row 2 -column 0 -columnspan 2 -pady {5 0} -sticky ew
+        grid .cmdCombobox -row 2 -column 0 -columnspan 2 -sticky ew 
+        grid .status -row 3 -column 0 -columnspan 2 -pady {5 0} -sticky ew
         grid columnconfigure . 0 -weight 1
         grid rowconfigure . 0 -weight 1
         grid .status.left -row 0 -column 0 -sticky nw  
@@ -693,6 +695,7 @@ namespace eval iatclsh {
         grid remove .sb
         wm protocol . WM_DELETE_WINDOW ::iatclsh::closeApp 
         wm title . "iatclsh"
+        grid remove .cmdCombobox
         focus .cmdEntry
     }
  
@@ -705,16 +708,16 @@ namespace eval iatclsh {
 
         # load user script popup menu state
         if {$restartAppIfScheduled} {
-            .puMenu entryconfigure "Load User Script" -state disabled
+            .puMenu entryconfigure "Load User Script..." -state disabled
         } else {
-            .puMenu entryconfigure "Load User Script" -state normal
+            .puMenu entryconfigure "Load User Script..." -state normal
         }
 
         # load background script popup menu state
         if {$reloadBgScriptScheduled} {
-            .puMenu entryconfigure "Load Background Script" -state disabled
+            .puMenu entryconfigure "Load Background Script..." -state disabled
         } else {
-            .puMenu entryconfigure "Load Background Script" -state normal
+            .puMenu entryconfigure "Load Background Script..." -state normal
         }
 
         # unload background script popup menu state
@@ -760,14 +763,15 @@ namespace eval iatclsh {
     # update combobox from history 
     proc updateComboBox {} {
         variable cmdHistory 
-        variable COMBOBOX_MAX          
-        set i [expr {[llength $cmdHistory] - $COMBOBOX_MAX - 1}]
+        variable prefs          
+        set max [dict get $prefs historySize]
+        set i [expr {[llength $cmdHistory] - $max - 1}]
         set cmds [lrange $cmdHistory $i end]
         set revCmds ""
         for {set i [expr {[llength $cmds] - 1}]} {$i >= 0} {incr i -1} {
             lappend revCmds [lindex $cmds $i]
         }
-        .cmdEntry configure -values $revCmds
+        .cmdCombobox configure -values $revCmds
     }
 
     # update entries for recent user scripts menu
@@ -789,6 +793,59 @@ namespace eval iatclsh {
             .puMenu.recentBgScriptsMenu insert 0 command \
                     -label [file tail $s] \
                     -command [list ::iatclsh::recentBgScriptUIEvent $s]
+        }
+    }
+
+    # display dialog for setting preferences
+    proc setPreferences {} {
+        variable cmdHistory
+        variable historyIndex
+        variable prefs
+
+        # display preferences dialog
+        set p [PrefsDlg::showPrefsDlg $prefs]
+        if {$p == ""} {
+            return
+        }
+        set prefs $p
+
+        # scroll lines
+        set l [dict get $prefs scrollLines]
+        if {$l < 200} {
+            set l 200 
+            dict set prefs scrollLines 200
+        }
+        .log configure -state normal
+        trimLog
+        .log configure -state disabled
+        .log see end
+
+        # command history size
+        set s [dict get $prefs historySize]
+        if {$s < 5} {
+            set s 5 
+            dict set prefs historySize 5
+        }
+        if {[llength $cmdHistory] > $s} {
+            incr s -1
+            set cmdHistory [lrange $cmdHistory end-$s end]
+            set historyIndex [llength $cmdHistory]
+        }
+
+        # show scrollbar
+        if {[dict get $prefs showScrollbar]} {
+            grid .sb
+        } else {
+            grid remove .sb
+        }
+
+        # show combobox
+        if {[dict get $prefs showCombobox]} {
+            grid remove .cmdEntry
+            grid .cmdCombobox
+        } else {
+            grid remove .cmdCombobox
+            grid .cmdEntry
         }
     }
 
@@ -1025,8 +1082,7 @@ namespace eval iatclsh {
     }
 
     proc main {} {
-        variable showScrollBar
-        variable showComboBox
+        variable prefs
         variable bgScript
         
         set parseOk [parseCmdLineArgs]
@@ -1038,11 +1094,13 @@ namespace eval iatclsh {
                     -message "Error parsing command line parameters"
             exit 1
         }
-        if {$showComboBox} {
-            updateComboBox
-        }
-        if {$showScrollBar} {
+        updateComboBox
+        if {[dict get $prefs showScrollbar]} {
             grid .sb
+        }
+        if {[dict get $prefs showCombobox]} {
+            grid remove .cmdEntry
+            grid .cmdCombobox
         }
         
         # show gui before start up
