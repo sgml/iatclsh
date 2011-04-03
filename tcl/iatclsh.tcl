@@ -843,9 +843,11 @@ namespace eval iatclsh {
         if {[dict get $prefs showCombobox]} {
             grid remove .cmdEntry
             grid .cmdCombobox
+            focus .cmdCombobox
         } else {
             grid remove .cmdCombobox
             grid .cmdEntry
+            focus .cmdEntry
         }
     }
 
@@ -1101,6 +1103,7 @@ namespace eval iatclsh {
         if {[dict get $prefs showCombobox]} {
             grid remove .cmdEntry
             grid .cmdCombobox
+            focus .cmdCombobox
         }
         
         # show gui before start up
