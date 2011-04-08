@@ -94,6 +94,16 @@ namespace eval iatclsh::PrefsDlg {
         grid x $changeDirCheckbutton -pady {2 0} -sticky w
         grid $okButton $cancelButton -padx 5 
 
+        update
+        set px [winfo rootx .]
+        set py [winfo rooty .]
+        set pw [winfo width .]
+        set ph [winfo height .]
+        set dw [winfo reqwidth .prefsDlg]
+        set dh [winfo reqheight .prefsDlg]
+        set dx [expr {$px + $pw / 2 - $dw / 2}]
+        set dy [expr {$py - 50 + $ph / 2 - $dh / 2}]
+        wm geometry .prefsDlg +$dx+$dy
         wm deiconify .prefsDlg
         tkwait visibility .prefsDlg
         grab set .prefsDlg
