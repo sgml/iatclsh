@@ -228,12 +228,17 @@ namespace eval iatclsh {
     proc processRxMsg {str} {
         while {$str != ""} {
             set i [string first "\x11" $str]
-            if {$i == -1} {
-                appendLog $str response
-                break
-            } else {
+            set j [string first "\x04" $str]
+            if {$i != -1 && (($i < $j) || ($j == -1))} {
                 clearLog
                 set str [string range $str $i+1 end]
+            } elseif {$j != -1} {
+                appendLog [string range $str 0 $j-1] response
+                appendLog "% " command
+                set str [string range $str $j+1 end]
+            } else {
+                appendLog $str response
+                break
             }
         }
     }
@@ -1115,6 +1120,8 @@ namespace eval iatclsh {
         
         # open app interface and source any user file
         startAppIf 
+
+        appendLog "% " command
 
         # load and run background script
         if {$bgScript != "" && [loadBgScript]} {

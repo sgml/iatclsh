@@ -28,7 +28,9 @@ namespace eval iatclsh {
         if {$bgCmd} {
             puts -nonewline "$ret\x03" 
         } elseif {$ret != ""} {    
-            puts $ret 
+            puts -nonewline "$ret\n\x04" 
+        } else {
+            puts -nonewline "\x04" 
         }
         flush stdout
     }
