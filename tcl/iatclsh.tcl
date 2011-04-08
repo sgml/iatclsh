@@ -663,7 +663,10 @@ namespace eval iatclsh {
         .puMenu add command -label "Unload Background Script" \
                 -command iatclsh::unloadBgScriptUIEvent
         .puMenu add separator
-        .puMenu add command -label "Clear" -command ::iatclsh::clearLog
+        .puMenu add command -label "Clear" -command {
+            ::iatclsh::clearLog
+            ::iatclsh::appendLog "% " command
+        }            
         .puMenu add separator
         .puMenu add command -label "Preferences..." \
                 -command ::iatclsh::setPreferences
