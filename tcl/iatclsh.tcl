@@ -681,10 +681,6 @@ namespace eval iatclsh {
         bind .cmdEntry <Return> {::iatclsh::postIaCmd}
         bind .cmdEntry <Up> {::iatclsh::setCmdLine up}
         bind .cmdEntry <Down> {::iatclsh::setCmdLine dn}
-        bind .cmdEntry <braceleft> {event generate .cmdEntry <braceright>; \
-                event generate .cmdEntry <Left>}
-        bind .cmdEntry <bracketleft> {event generate .cmdEntry <bracketright>; \
-                event generate .cmdEntry <Left>}
         bind .log <ButtonPress-3> {tk_popup .puMenu %X %Y}
         bind .cmdCombobox <Return> {::iatclsh::postIaCmd}
 
