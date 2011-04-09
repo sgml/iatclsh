@@ -669,7 +669,7 @@ namespace eval iatclsh {
         }            
         .puMenu add separator
         .puMenu add command -label "Preferences..." \
-                -command ::iatclsh::setPreferences
+                -command {iatclsh::PrefsDlg::showPrefsDlg $iatclsh::prefs}
 
         # configure log
         .log configure -state disabled 
@@ -804,19 +804,13 @@ namespace eval iatclsh {
         }
     }
 
-    # display dialog for setting preferences
-    proc setPreferences {} {
+    # callback for preferences dialog ok button
+    proc prefsOkAction {updatedPrefs} {
         variable cmdHistory
         variable historyIndex
-        variable prefs
-
-        # display preferences dialog
-        set p [PrefsDlg::showPrefsDlg $prefs]
-        if {$p == ""} {
-            return
-        }
-        set prefs $p
-
+        variable prefs 
+        set prefs $updatedPrefs
+        
         # scroll lines
         set l [dict get $prefs scrollLines]
         if {$l < 200} {

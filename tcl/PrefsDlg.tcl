@@ -6,7 +6,6 @@
 
 namespace eval iatclsh::PrefsDlg {    
 
-    variable okButtonPressed  
     variable scrollLines 
     variable historySize 
     variable showScrollbar
@@ -14,13 +13,11 @@ namespace eval iatclsh::PrefsDlg {
     variable changeDir
 
     proc showPrefsDlg {prefs} {
-        variable okButtonPressed 
         variable scrollLines
         variable historySize
         variable showScrollbar
         variable showCombobox
         variable changeDir
-        set okButtonPressed 0
         set scrollLines [dict get $prefs scrollLines]
         set historySize [dict get $prefs historySize]
         set showScrollbar [dict get $prefs showScrollbar]
@@ -28,17 +25,9 @@ namespace eval iatclsh::PrefsDlg {
         set changeDir [dict get $prefs changeDir]
 
         buildPrefsDlg 
-        tkwait window .prefsDlg
-
-        if {!$okButtonPressed} {
-            return 
-        }
-        dict set prefs scrollLines $scrollLines
-        dict set prefs historySize $historySize
-        dict set prefs showScrollbar $showScrollbar
-        dict set prefs showCombobox $showCombobox
-        dict set prefs changeDir $changeDir
-        return $prefs
+        wm deiconify .prefsDlg
+        tkwait visibility .prefsDlg
+        grab set .prefsDlg
     }
 
     proc buildPrefsDlg {} {
@@ -104,15 +93,18 @@ namespace eval iatclsh::PrefsDlg {
         set dx [expr {$px + $pw / 2 - $dw / 2}]
         set dy [expr {$py - 50 + $ph / 2 - $dh / 2}]
         wm geometry .prefsDlg +$dx+$dy
-        wm deiconify .prefsDlg
-        tkwait visibility .prefsDlg
-        grab set .prefsDlg
     }
 
     proc okButtonEvent {} {
-        variable okButtonPressed
-        set okButtonPressed 1
+        variable scrollLines
+        variable historySize
+        variable showScrollbar
+        variable showCombobox
+        variable changeDir
         destroy .prefsDlg
+        iatclsh::prefsOkAction [dict create scrollLines $scrollLines \
+                historySize $historySize showScrollbar $showScrollbar \
+                showCombobox $showCombobox changeDir $changeDir] 
     }
 
     proc cancelButtonEvent {} {
