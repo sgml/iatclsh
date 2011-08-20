@@ -287,6 +287,8 @@ namespace eval iatclsh {
                 updateComboBox
             }
             set historyIndex [llength $cmdHistory]
+        } else {
+            appendLog "\n" command
         }
         puts $fd "$cmd"
         flush $fd
