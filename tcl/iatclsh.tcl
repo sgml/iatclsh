@@ -119,7 +119,6 @@ namespace eval iatclsh {
         variable userScript
         set userScript $s
         appendRecentUserScripts $s
-        updateRecentUserScriptsMenu
     }
 
     # append filename to recent user scripts, with a maximum length of four
@@ -142,7 +141,6 @@ namespace eval iatclsh {
         variable bgScript
         set bgScript $s
         appendRecentBgScripts $s
-        updateRecentBgScriptsMenu
     }
 
     # append filename to recent background scripts, with a maximum length of 
@@ -359,10 +357,16 @@ namespace eval iatclsh {
                 lappend cmdHistory [string range $s 5 end]
             }
             if {[string first "rus:" $s] == 0} {
-                lappend recentUserScripts [string range $s 5 end]
+                set rus [string range $s 5 end]
+                if {[lsearch -exact $recentUserScripts $rus] == -1} {
+                    lappend recentUserScripts $rus
+                }
             }
             if {[string first "rbg:" $s] == 0} {
-                lappend recentBgScripts [string range $s 5 end]
+                set rbg [string range $s 5 end]
+                if {[lsearch -exact $recentBgScripts $rbg] == -1} {
+                    lappend recentBgScripts $rbg
+                }
             }
             if {[string first "pref:" $s] == 0} {
                 set l [string range $s 6 end]
@@ -675,7 +679,6 @@ namespace eval iatclsh {
         .log configure -state disabled 
         .log tag configure command -foreground green
         .log tag configure response -foreground lightgrey
-        .log tag configure error -foreground red
 
         # bindings
         bind .cmdEntry <Return> {::iatclsh::postIaCmd}
@@ -856,6 +859,7 @@ namespace eval iatclsh {
             return
         }
         setUserScript [file normalize $f]
+        updateRecentUserScriptsMenu
         restartAppIfRequest
     }
 
@@ -866,18 +870,21 @@ namespace eval iatclsh {
             return
         }
         setBgScript [file normalize $f]
+        updateRecentBgScriptsMenu
         loadBgScriptRequest
     }
 
     # recent user script file selected from recent user files menu
     proc recentUserScriptUIEvent {filename} {
         setUserScript $filename
+        updateRecentUserScriptsMenu
         restartAppIfRequest
     }
 
     # recent background script file selected from recent background files menu
     proc recentBgScriptUIEvent {filename} {
         setBgScript $filename
+        updateRecentBgScriptsMenu
         loadBgScriptRequest
     }
 
@@ -1085,8 +1092,8 @@ namespace eval iatclsh {
         variable prefs
         variable bgScript
         
-        set parseOk [parseCmdLineArgs]
         catch iatclsh::loadHistory
+        set parseOk [parseCmdLineArgs]
 
         buildGui
         if {$parseOk == 0} {
