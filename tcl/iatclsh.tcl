@@ -83,8 +83,8 @@ namespace eval iatclsh {
     variable prefs [dict create scrollLines 5000 historySize 100 \
             showScrollbar 0 showCombobox 0 changeDir 1]
 
-    # parse command line arguments. Returns 1 if command line parsed 
-    # successfully, otherwise 0
+    # parse command line arguments. Returns "" if command line parsed 
+    # successfully, otherwise returns an error message string
     proc parseCmdLineArgs {} {
         global argc argv 
         variable userScript  
@@ -95,23 +95,34 @@ namespace eval iatclsh {
                 if {$t == "-bg"} {
                     incr i
                     if {$i >= $argc} {
-                        return 0
+                        return "command line parameter error"
+
                     }
-                    setBgScript [file normalize [lindex $argv $i]]
+                    set f [file normalize [lindex $argv $i]]
+                    if {[file exists $f] && [file isfile $f]} {
+                        setBgScript $f
+                    } else {
+                        return "background script filename error"
+                    }
                     incr i
                 } else {
-                    return 0
+                    return "command line parameter error"
                 }
             } else {
                 if {$userScript == ""} {
-                    setUserScript [file normalize $t]
+                    set f [file normalize $t]
+                    if {[file exists $f] && [file isfile $f]} {
+                        setUserScript $f
+                    } else {
+                        return "user script filename error"
+                    }
                 } else {
-                    return 0
+                    return "command line parameter error"
                 }
                 incr i
             }
         }
-        return 1
+        return
     }
 
     # set user script and add to recent user scripts
@@ -1095,12 +1106,12 @@ namespace eval iatclsh {
         variable bgScript
         
         catch iatclsh::loadHistory
-        set parseOk [parseCmdLineArgs]
+        set parseRv [parseCmdLineArgs]
 
         buildGui
-        if {$parseOk == 0} {
+        if {$parseRv != ""} {
             tk_messageBox -type ok -icon error -title "Error" \
-                    -message "Error parsing command line parameters"
+                    -message "Error parsing command line parameters:\n$parseRv"
             exit 1
         }
         updateComboBox
