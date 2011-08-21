@@ -9,7 +9,7 @@ source [file dirname [file normalize [info script]]]/PrefsDlg.tcl
 namespace eval iatclsh {    
     variable exports [list \
             slaveInterpVarChange \
-            pending post cmd getLine getAll stop start \
+            cmd stop start \
             isStatusBarHidden showStatusBar hideStatusBar \
             setStatusLeft setStatusRight getBusyString \
             addAction addCBAction addRBAction addSeparator] 
@@ -43,7 +43,6 @@ namespace eval iatclsh {
     # indicates that a background command has run and completed; inBgCmd
     # indicates background command is executing.
     variable cmdLine ""
-    variable bgCmdPending 0
     variable bgRxBuf ""    
     variable bgCmdComplete 0
     variable inBgCmd 0
@@ -304,18 +303,7 @@ namespace eval iatclsh {
         puts $fd "$cmd"
         flush $fd
     }
-
-    # post background command
-    proc post {args} {
-        variable bgCmdPending
-        variable fd
-        if {!$bgCmdPending} {
-            set bgRxBuf ""
-            set bgCmdPending 1
-            puts $fd "\x02$args"; flush $fd
-        }
-    }
-    
+   
     # sets command line entry widget, based on current historyIndex and dir.
     # dir may be up or down.
     proc setCmdLine {dir} {
@@ -417,50 +405,15 @@ namespace eval iatclsh {
         close $f
     }
 
-    # returns 1 if background command pending, otherwise 0
-    proc pending {} {
-        variable bgCmdPending
-        return $bgCmdPending
-    }
-    
     # sends command and returns all response from background command
     proc cmd {args} {
         variable bgRxBuf 
-        variable bgCmdPending
         variable fd
-        if {!$bgCmdPending} {
-            set bgRxBuf ""
-            puts $fd "\x02$args"
-            flush $fd
-            return [getAll]
-        }
-        return ""
-    }
-    
-    # get a line of response from background command
-    proc getLine {} {
-        variable bgRxBuf
-        while {1} {
-            if {[regexp {^(.*?)\n(.*)$} $bgRxBuf match before after]} {
-                set bgRxBuf $after
-                return $before
-            }
-            vwait ::iatclsh::bgRxBuf
-        }
-    }
-
-    # get complete response from background command
-    proc getAll {} {
-        variable bgRxBuf
-        variable bgCmdComplete
-        while {1} {
-            vwait ::iatclsh::bgCmdComplete
-            if {$bgCmdComplete} {
-                regexp {(.*?)(\n)?$} $bgRxBuf match line
-                set bgRxBuf ""
-                return $line
-            }
-        }
+        set bgRxBuf ""
+        puts $fd "\x02$args"; flush $fd
+        vwait ::iatclsh::bgCmdComplete
+        regexp {(.*?)(\n)?$} $bgRxBuf match line
+        return $line
     }
 
     proc isStatusBarHidden {} {
