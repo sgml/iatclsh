@@ -335,13 +335,24 @@ namespace eval iatclsh {
     # button pressed
     proc closeApp {} {
         variable fd
-        close $fd
+        closeAppIf
         saveHistory
         executeClosing 
         exit 0
     }
+
+    proc closeAppIf {} {
+        global tcl_platform
+        variable fd
+        set fdPid [pid $fd]
+        close $fd
+        after 100
+        if {$tcl_platform(os) == "Linux"} {
+            iatclsh::kill $fdPid
+        }
+    }
     
-    # load command history from ~./iatclsh file
+    # load command history from ~/.iatclsh file
     proc loadHistory {} {
         variable cmdHistory
         variable recentUserScripts
@@ -889,7 +900,7 @@ namespace eval iatclsh {
         variable bgRxBuf
         variable bgCmdComplete
         variable cmdLine
-        close $fd
+        closeAppIf
         set restartAppIfScheduled 0
         set userScript ""
         set bgRxBuf "\n"
@@ -919,7 +930,7 @@ namespace eval iatclsh {
         variable fd
         variable restartAppIfScheduled 
         variable cmdLine
-        close $fd
+        closeAppIf
         set restartAppIfScheduled 0
         set cmdLine ""
         startAppIf 
@@ -1055,18 +1066,32 @@ namespace eval iatclsh {
     }
 
     proc main {} {
+        global tcl_platform
         variable prefs
         variable bgScript
         
+        # load libkill
+        if {$tcl_platform(os) == "Linux"} {
+            set lib [file normalize [file dirname [info script]]]/libkill.so
+            if {[catch {load $lib} errMsg]} {
+                puts "error loading libkill"
+                puts $errMsg
+            }
+        }
+
         catch iatclsh::loadHistory
         set parseRv [parseCmdLineArgs]
 
         buildGui
+
+        # display error dialog and exit if command line param error
         if {$parseRv != ""} {
             tk_messageBox -type ok -icon error -title "Error" \
                     -message "Error parsing command line parameters:\n$parseRv"
             exit 1
         }
+
+        # configure ui depending on user settings
         updateComboBox
         if {[dict get $prefs showScrollbar]} {
             grid .sb
