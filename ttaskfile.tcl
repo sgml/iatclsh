@@ -11,6 +11,7 @@ set src {iatclsh.tcl app_if.tcl PrefsDlg.tcl}
 task build {
     $linuxKill build
     $tar build
+    $zip build
 }
 
 task clean {file delete -force build}
@@ -25,4 +26,9 @@ $linuxKill build -buildDir build/libkill -incPath $INC_PATH \
 set tar [project tar]
 $tar src -srcDir ./tcl -add $src -srcDir ./build/libkill -add libkill.so
 $tar build -buildDir build/tar -name iatclsh.tar.gz
+
+# zip archive consig
+set zip [project zip]
+$zip src -srcDir ./tcl -add $src 
+$zip build -buildDir build/zip -name iatclsh.zip
 
