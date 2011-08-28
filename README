@@ -1,15 +1,3 @@
-To run iatclsh under Linux:
-
-    iatclsh.tcl
-
-And under Windows:
-
-    tclsh85 iatclsh.tcl
-
-User and background script may be specified on command line. Use command line
-parameter '-bg' to specify the background script. For example, with Linux:
-
-    iatclsh.tcl -bg bg_example.tcl ia_example_hw.tcl
-
-For more details see http://pdt.github.com/iatclsh
+See http://pdt.github.com/iatclsh for Linux and Windows iatclsh downloads and
+running instructions.
 
