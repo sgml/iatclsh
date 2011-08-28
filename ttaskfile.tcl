@@ -27,7 +27,7 @@ set tar [project tar]
 $tar src -srcDir ./tcl -add $src -srcDir ./build/libkill -add libkill.so
 $tar build -buildDir build/tar -name iatclsh.tar.gz
 
-# zip archive consig
+# zip archive config
 set zip [project zip]
 $zip src -srcDir ./tcl -add $src 
 $zip build -buildDir build/zip -name iatclsh.zip
