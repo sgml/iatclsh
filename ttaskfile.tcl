@@ -3,8 +3,8 @@
 #
 
 # gcc settings
-set INC_PATH /usr/include/tcl8.5
-set LIB_PATH /usr/lib
+config INC_PATH /usr/include/tcl8.5
+config LIB_PATH /usr/lib
 
 set src {iatclsh.tcl app_if.tcl PrefsDlg.tcl}
 
