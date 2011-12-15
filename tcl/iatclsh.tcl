@@ -95,7 +95,6 @@ namespace eval iatclsh {
                     incr i
                     if {$i >= $argc} {
                         return "command line parameter error"
-
                     }
                     set f [file normalize [lindex $argv $i]]
                     if {[file exists $f] && [file isfile $f]} {
@@ -176,7 +175,11 @@ namespace eval iatclsh {
         variable appIf
         variable prefs
         set exe [info nameofexecutable]
-        set fd [open "|$exe $appIf" r+]
+        if {[info exists ::runningWithTclkit]} {
+            set fd [open "|$exe -app_if" r+]
+        } else {
+            set fd [open "|$exe $appIf" r+]
+        }
         chan configure $fd -blocking 0
         chan event $fd readable ::iatclsh::readPipe
         if {$userScript != ""} {
