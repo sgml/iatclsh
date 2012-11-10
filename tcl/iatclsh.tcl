@@ -350,8 +350,10 @@ namespace eval iatclsh {
         set fdPid [pid $fd]
         close $fd
         after 100
-        if {$tcl_platform(os) == "Linux"} {
-            iatclsh::kill $fdPid
+        if {[string first Windows $tcl_platform(os)] == 0} {
+            catch {exec taskkill /f /t /pid $fdPid}
+        } else {
+            catch {exec kill $fdPid}
         }
     }
     
@@ -1073,15 +1075,6 @@ namespace eval iatclsh {
         variable prefs
         variable bgScript
         
-        # load libkill
-        if {$tcl_platform(os) == "Linux"} {
-            set lib [file normalize [file dirname [info script]]]/libkill.so
-            if {[catch {load $lib} errMsg]} {
-                puts "error loading libkill"
-                puts $errMsg
-            }
-        }
-
         catch iatclsh::loadHistory
         set parseRv [parseCmdLineArgs]
 
