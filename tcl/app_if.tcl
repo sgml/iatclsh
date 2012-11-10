@@ -7,14 +7,13 @@ proc clear {} {
 }
 
 namespace eval iatclsh {
-    variable cmd
-    variable ret
-    variable err
-    variable bgCmd
-    while {1} {
+    proc readStdin {} {
         set cmd [gets stdin]
         if {[eof stdin]} {
             exit 0
+        }
+        if {[fblocked stdin]} {
+            return
         }
         set bgCmd 0
         if {[string first "\x02" $cmd] == 0} {
@@ -22,7 +21,7 @@ namespace eval iatclsh {
             puts -nonewline "\x02"
             set bgCmd 1
         }
-        if {[catch {set ret [namespace eval :: $::iatclsh::cmd]} err]} {
+        if {[catch {set ret [namespace eval :: $cmd]} err]} {
             set ret $err
         } 
         if {$bgCmd} {
@@ -34,5 +33,9 @@ namespace eval iatclsh {
         }
         flush stdout
     }
+
+    fconfigure stdin -blocking 0
+    fileevent stdin readable ::iatclsh::readStdin
+    vwait forever
 }
 
