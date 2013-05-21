@@ -162,11 +162,7 @@ proc iatclsh::appendRecentBgScripts {filename} {
 proc iatclsh::startAppIf {} {
     variables fd userScript appIf prefs
     set exe [info nameofexecutable]
-    if {[info exists ::runningWithTclkit]} {
-        set fd [open "|$exe -app_if" r+]
-    } else {
-        set fd [open "|$exe $appIf" r+]
-    }
+    set fd [open "|$exe $appIf" r+]
     chan configure $fd -blocking 0
     chan event $fd readable ::iatclsh::readPipe
     if {$userScript != ""} {
