@@ -6,7 +6,6 @@
 set hwEnable off
 
 proc help {} {
-    puts ""
     puts "en        Get/set power enable (\[on/off\])"
     puts "supv      Get supply voltage"
     puts "supi      Get supply current"

@@ -166,6 +166,7 @@ proc iatclsh::startAppIf {} {
     chan configure $fd -blocking 0
     chan event $fd readable ::iatclsh::readPipe
     if {$userScript != ""} {
+        appendLog \n command
         if {[dict get $prefs changeDir]} {
             puts -nonewline $fd "cd [file dirname $userScript]; "
             puts $fd "source [file tail $userScript]"
