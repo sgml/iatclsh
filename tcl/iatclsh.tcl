@@ -833,6 +833,7 @@ proc iatclsh::resetTclshUIEvent {} {
     set bgCmdComplete 1
     set cmdLine ""
     startAppIf
+    updateGuiState 
 }
 
 # unload background script 
